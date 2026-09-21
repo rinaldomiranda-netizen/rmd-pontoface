@@ -1,0 +1,8 @@
+{
+  "name": "RMD PontoFace",
+  "short_name": "PontoFace",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f3f6f4",
+  "theme_color": "#102f24"
+}
