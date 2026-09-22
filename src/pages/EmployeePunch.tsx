@@ -81,18 +81,22 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
     let cancelled = false;
     (async () => {
       try {
-        await loadFaceModels();
-        if (cancelled) return;
         setPhase('camera'); setHint('Ligando a câmera...');
+        // Pede a câmera primeiro (mantém o gesto de toque do usuário válido)
+        // e carrega o motor de reconhecimento ao mesmo tempo, não depois.
+        const modelsPromise = loadFaceModels();
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 480, height: 480 } });
         if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
         streamRef.current = stream;
         if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
+        setHint('Carregando o motor de reconhecimento...');
+        await modelsPromise;
+        if (cancelled) return;
         setPhase('centering'); setHint('Centralize seu rosto na câmera.');
         startedAtRef.current = Date.now();
         loop();
       } catch (e) {
-        onCancel('Erro: ' + ((e as any)?.name || '') + ' ' + ((e as any)?.message || String(e)));
+        onCancel('Não foi possível acessar a câmera. Verifique as permissões do navegador.');
       }
     })();
     return () => { cancelled = true; if (rafRef.current) cancelAnimationFrame(rafRef.current); streamRef.current?.getTracks().forEach(t => t.stop()); };

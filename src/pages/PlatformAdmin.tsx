@@ -110,6 +110,10 @@ export default function PlatformAdmin() {
             <div className="notice" style={{ marginTop: 14 }}>
               <b>{inviteLink.name}</b> criada. Envie este link para o cliente (funciona uma única vez):
               <div className="copylink" style={{ marginTop: 8 }}><span>{inviteLink.url}</span><button className="btn light" onClick={() => navigator.clipboard?.writeText(inviteLink.url)}>Copiar</button></div>
+              <a className="btn green" style={{ marginTop: 10, display: 'inline-block', textDecoration: 'none' }} target="_blank" rel="noreferrer"
+                href={`https://wa.me/?text=${encodeURIComponent(`Olá! Aqui está o seu acesso ao sistema ${inviteLink.name}: ${inviteLink.url}`)}`}>
+                📲 Enviar pelo WhatsApp
+              </a>
             </div>
           )}
         </div>

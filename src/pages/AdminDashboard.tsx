@@ -213,7 +213,13 @@ function Employees({ companyId, role, labels }: { companyId: string; role: strin
           <h2>Link individual — {linkFor.name}</h2>
           <p className="helptext">Envie este link ao funcionário. Ele é pessoal e pode ser revogado a qualquer momento em "Acessos".</p>
           <div className="copylink"><span>{linkFor.url}</span><button className="btn light" onClick={() => { navigator.clipboard?.writeText(linkFor.url); }}>Copiar</button></div>
-          <button className="btn light" style={{ marginTop: 10 }} onClick={() => setLinkFor(null)}>Fechar</button>
+          <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+            <a className="btn green" style={{ textDecoration: 'none' }} target="_blank" rel="noreferrer"
+              href={`https://wa.me/?text=${encodeURIComponent(`Olá, ${linkFor.name}! Aqui está o seu link de acesso: ${linkFor.url}`)}`}>
+              📲 Enviar pelo WhatsApp
+            </a>
+            <button className="btn light" onClick={() => setLinkFor(null)}>Fechar</button>
+          </div>
         </div>
       )}
 
@@ -232,14 +238,20 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
 
   React.useEffect(() => {
     let stream: MediaStream | null = null;
-    loadFaceModels().then(() => {
-      setStatus('');
-      return navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
-    }).then(s => {
-      stream = s;
-      if (videoRef.current) { videoRef.current.srcObject = s; setStreaming(true); }
-    }).catch((e: any) => setStatus('Erro: ' + (e?.name || '') + ' ' + (e?.message || String(e))));
-    return () => { stream?.getTracks().forEach(t => t.stop()); };
+    let cancelled = false;
+    // Pede a câmera IMEDIATAMENTE (no mesmo instante do clique), e carrega o
+    // motor de reconhecimento em paralelo — em vez de esperar o motor carregar
+    // primeiro, o que faz alguns navegadores recusarem o pedido de câmera depois.
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+      .then(s => {
+        if (cancelled) { s.getTracks().forEach(t => t.stop()); return; }
+        stream = s;
+        if (videoRef.current) { videoRef.current.srcObject = s; setStreaming(true); }
+      })
+      .catch(() => setStatus('Não foi possível acessar a câmera. Verifique as permissões do navegador.'));
+    loadFaceModels().then(() => { if (!cancelled) setStatus(''); })
+      .catch(() => { if (!cancelled) setStatus('Não foi possível carregar o motor de reconhecimento. Verifique sua conexão e recarregue a página.'); });
+    return () => { cancelled = true; stream?.getTracks().forEach(t => t.stop()); };
   }, []);
 
   function capture() {
