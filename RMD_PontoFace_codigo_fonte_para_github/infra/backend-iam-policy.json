@@ -1,0 +1,16 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PontoFaceLivenessAndFaceMatch",
+      "Effect": "Allow",
+      "Action": [
+        "rekognition:CreateFaceLivenessSession",
+        "rekognition:GetFaceLivenessSessionResults",
+        "rekognition:CompareFaces",
+        "rekognition:DetectFaces"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
