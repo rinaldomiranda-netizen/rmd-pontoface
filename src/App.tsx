@@ -6,6 +6,37 @@ import AdminDashboard from './pages/AdminDashboard';
 import PlatformAdmin from './pages/PlatformAdmin';
 import ClaimInvite from './pages/ClaimInvite';
 
+function MainPortal() {
+  return (
+    <main className="portal-page">
+      <section className="portal-shell" aria-labelledby="portal-title">
+        <div className="portal-eyebrow">RMD PontoFace</div>
+        <h1 id="portal-title">Acesse seu ambiente</h1>
+        <p className="portal-subtitle">
+          Escolha a área correspondente ao seu acesso.
+        </p>
+
+        <div className="portal-options">
+          <a className="portal-option portal-option-primary" href="/rmd">
+            <span className="portal-option-label">RMD</span>
+            <span>Administração da plataforma</span>
+          </a>
+          <a className="portal-option" href="/admin">
+            <span className="portal-option-label">EMPRESA</span>
+            <span>Gestão da operação e dos funcionários</span>
+          </a>
+          <div className="portal-option portal-option-disabled">
+            <span className="portal-option-label">FUNCIONÁRIO</span>
+            <span>Acesse pelo link individual recebido da empresa</span>
+          </div>
+        </div>
+
+        <p className="portal-footer">Acesso seguro para cada ambiente.</p>
+      </section>
+    </main>
+  );
+}
+
 function AdminApp() {
   const [membership, setMembership] = React.useState<{ companyId: string; role: string } | null | undefined>(undefined);
 
@@ -32,7 +63,8 @@ function App() {
   if (path.startsWith('/rmd')) return <PlatformAdmin />;
   if (path.startsWith('/convite')) return <ClaimInvite />;
   if (path.startsWith('/admin')) return <AdminApp />;
-  return <EmployeePunch />;
+  if (path.startsWith('/funcionario/')) return <EmployeePunch />;
+  return <MainPortal />;
 }
 
 export default App;

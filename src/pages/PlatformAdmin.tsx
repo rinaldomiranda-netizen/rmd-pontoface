@@ -3,7 +3,7 @@ import { supabase, callFunction } from '../lib/supabaseClient';
 
 type Company = {
   id: string; name: string; active: boolean; created_at: string;
-  employee_count: number; owner_email: string | null; has_pending_invite: boolean;
+  owner_email: string | null; has_pending_invite: boolean;
 };
 
 export default function PlatformAdmin() {
@@ -121,19 +121,18 @@ export default function PlatformAdmin() {
         <div className="card">
           <h2>{companies.length} empresa(s)</h2>
           <table>
-            <thead><tr><th>Nome</th><th>Responsável</th><th>Pessoas</th><th>Status</th><th>Convite</th><th></th></tr></thead>
+            <thead><tr><th>Nome</th><th>Responsável</th><th>Status</th><th>Convite</th><th></th></tr></thead>
             <tbody>
               {companies.map(c => (
                 <tr key={c.id}>
                   <td>{c.name}</td>
                   <td>{c.owner_email || <span className="helptext">ainda não vinculado</span>}</td>
-                  <td>{c.employee_count}</td>
                   <td><span className={`tag ${c.active ? '' : 'danger'}`}>{c.active ? 'Ativa' : 'Suspensa'}</span></td>
                   <td>{c.has_pending_invite ? <span className="tag warn">Pendente</span> : <span className="tag off">—</span>}</td>
                   <td><button className="btn light" onClick={() => toggleActive(c.id, c.active)}>{c.active ? 'Suspender' : 'Reativar'}</button></td>
                 </tr>
               ))}
-              {!companies.length && <tr><td colSpan={6} className="empty-row">Nenhuma empresa cadastrada ainda.</td></tr>}
+              {!companies.length && <tr><td colSpan={5} className="empty-row">Nenhuma empresa cadastrada ainda.</td></tr>}
             </tbody>
           </table>
         </div>

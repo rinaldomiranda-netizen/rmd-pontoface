@@ -10,19 +10,18 @@ import App from './App';
 function installDynamicManifest() {
   try {
     const current = location.pathname + location.search;
+    const origin = location.origin;
     const manifest = {
       name: 'RMD PontoFace',
       short_name: 'PontoFace',
-      start_url: current,
-      scope: '/',
+      start_url: new URL(current || '/', origin).toString(),
+      scope: `${origin}/`,
       display: 'standalone',
       background_color: '#f3f6f4',
       theme_color: '#102f24',
       icons: [
-        { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-        { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-        { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
-        { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+        { src: new URL('/icon-192.png', origin).toString(), sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+        { src: new URL('/icon-512.png', origin).toString(), sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
       ]
     };
     const blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
