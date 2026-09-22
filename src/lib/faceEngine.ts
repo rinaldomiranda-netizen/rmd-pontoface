@@ -8,9 +8,15 @@ export function loadFaceModels(): Promise<void> {
   if (loadingPromise) return loadingPromise;
   loadingPromise = (async () => {
     const url = '/models';
-    await faceapi.nets.tinyFaceDetector.loadFromUri(url);
-    await faceapi.nets.faceLandmark68Net.loadFromUri(url);
-    await faceapi.nets.faceRecognitionNet.loadFromUri(url);
+    try {
+      await faceapi.nets.tinyFaceDetector.loadFromUri(url);
+    } catch (e) { loadingPromise = null; throw new Error('tinyFaceDetector: ' + ((e as any)?.message || e)); }
+    try {
+      await faceapi.nets.faceLandmark68Net.loadFromUri(url);
+    } catch (e) { loadingPromise = null; throw new Error('faceLandmark68Net: ' + ((e as any)?.message || e)); }
+    try {
+      await faceapi.nets.faceRecognitionNet.loadFromUri(url);
+    } catch (e) { loadingPromise = null; throw new Error('faceRecognitionNet: ' + ((e as any)?.message || e)); }
     modelsLoaded = true;
   })();
   return loadingPromise;

@@ -92,7 +92,7 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
         startedAtRef.current = Date.now();
         loop();
       } catch (e) {
-        onCancel('Não foi possível acessar a câmera. Verifique as permissões do navegador.');
+        onCancel('Erro: ' + ((e as any)?.name || '') + ' ' + ((e as any)?.message || String(e)));
       }
     })();
     return () => { cancelled = true; if (rafRef.current) cancelAnimationFrame(rafRef.current); streamRef.current?.getTracks().forEach(t => t.stop()); };

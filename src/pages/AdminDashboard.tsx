@@ -4,6 +4,9 @@ import { loadFaceModels, detectFace } from '../lib/faceEngine';
 import { parseCsv, normalizeImportRow } from '../lib/csv';
 import JSZip from 'jszip';
 
+const ToastContext = React.createContext<(msg: string) => void>(() => {});
+function useToast() { return React.useContext(ToastContext); }
+
 type Props = { companyId: string; role: string; onLogout: () => void };
 
 type Section = 'overview' | 'employees' | 'attendance' | 'locations' | 'access' | 'import' | 'company' | 'audit';
@@ -22,6 +25,13 @@ const SECTIONS: { id: Section; label: string }[] = [
 export default function AdminDashboard({ companyId, role, onLogout }: Props) {
   const [section, setSection] = React.useState<Section>('overview');
   const [labels, setLabels] = React.useState({ person_label: 'Funcionário', people_label: 'Funcionários', entry_label: 'Bater entrada', exit_label: 'Bater saída', exit_enabled: true, name: 'RMD PontoFace' });
+  const [toastMsg, setToastMsg] = React.useState<string | null>(null);
+  const toastTimer = React.useRef<number | null>(null);
+  function showToast(msg: string) {
+    setToastMsg(msg);
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToastMsg(null), 2600);
+  }
 
   React.useEffect(() => {
     supabase.from('companies').select('name,person_label,people_label,entry_label,exit_label,exit_enabled').eq('id', companyId).maybeSingle()
@@ -39,6 +49,7 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
   );
 
   return (
+    <ToastContext.Provider value={showToast}>
     <div className="admin">
       <div className="admin-shell">
         <nav className="admin-nav">
@@ -48,10 +59,11 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
         </nav>
         <main className="admin-main">
           <div className="admin-topbar">
+            {section !== 'overview' && <button className="btn light back-btn" onClick={() => setSection('overview')}>← Voltar</button>}
             <h1>{navLabel(section)}</h1>
             <button className="btn light" onClick={onLogout}>Sair</button>
           </div>
-          <div className="mobile-nav">{nav}</div>
+          {section === 'overview' ? <div className="mobile-nav">{nav}</div> : <div className="mobile-nav-back"><button className="btn light wide" onClick={() => setSection('overview')}>← Voltar ao menu</button></div>}
           {section === 'overview' && <Overview companyId={companyId} />}
           {section === 'employees' && <Employees companyId={companyId} role={role} labels={labels} />}
           {section === 'attendance' && <Attendance companyId={companyId} />}
@@ -62,7 +74,9 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
           {section === 'audit' && <Audit companyId={companyId} />}
         </main>
       </div>
+      {toastMsg && <div className="toast-banner">{toastMsg}</div>}
     </div>
+    </ToastContext.Provider>
   );
 }
 
@@ -102,6 +116,7 @@ function Overview({ companyId }: { companyId: string }) {
 
 /* ---------------------------- Employees ---------------------------- */
 function Employees({ companyId, role, labels }: { companyId: string; role: string; labels: { person_label: string; people_label: string } }) {
+  const showToast = useToast();
   const [list, setList] = React.useState<any[]>([]);
   const [showForm, setShowForm] = React.useState(false);
   const [form, setForm] = React.useState({ full_name: '', registration_code: '', job_title: '', department: '', document_last4: '' });
@@ -127,12 +142,14 @@ function Employees({ companyId, role, labels }: { companyId: string; role: strin
     if (!res.ok) { setError(friendlyError((res.data as any)?.error)); return; }
     setForm({ full_name: '', registration_code: '', job_title: '', department: '', document_last4: '' });
     setShowForm(false);
+    showToast(`${labels.person_label} cadastrado(a) com sucesso.`);
     load();
   }
 
   async function toggleActive(id: string, active: boolean) {
     const res = await callFunction('admin-mutate', { table: 'employees', action: 'update', company_id: companyId, id, payload: { active: !active } });
     if (!res.ok) { alert(friendlyError((res.data as any)?.error)); return; }
+    showToast(active ? 'Desativado.' : 'Ativado.');
     load();
   }
 
@@ -140,6 +157,7 @@ function Employees({ companyId, role, labels }: { companyId: string; role: strin
     const res = await callFunction<{ path?: string; error?: string }>('generate-employee-access', { employee_id: id });
     if (!res.ok || !res.data.path) { alert(friendlyError((res.data as any)?.error)); return; }
     setLinkFor({ id, name, url: `${window.location.origin}${res.data.path}` });
+    showToast('Link gerado com sucesso.');
   }
 
   return (
@@ -220,7 +238,7 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
     }).then(s => {
       stream = s;
       if (videoRef.current) { videoRef.current.srcObject = s; setStreaming(true); }
-    }).catch(() => setStatus('Não foi possível acessar a câmera. Verifique as permissões do navegador.'));
+    }).catch((e: any) => setStatus('Erro: ' + (e?.name || '') + ' ' + (e?.message || String(e))));
     return () => { stream?.getTracks().forEach(t => t.stop()); };
   }, []);
 
@@ -324,6 +342,7 @@ function Attendance({ companyId }: { companyId: string }) {
 
 /* ---------------------------- Locations ---------------------------- */
 function Locations({ companyId }: { companyId: string }) {
+  const showToast = useToast();
   const [list, setList] = React.useState<any[]>([]);
   const [form, setForm] = React.useState({ name: '', address: '', radius_m: '150' });
 
@@ -337,11 +356,12 @@ function Locations({ companyId }: { companyId: string }) {
     if (!form.name.trim()) return;
     const res = await callFunction('admin-mutate', { table: 'work_locations', action: 'insert', company_id: companyId, payload: { name: form.name.trim(), address: form.address.trim() || null, radius_m: Number(form.radius_m) || null } });
     if (!res.ok) { alert(friendlyError((res.data as any)?.error)); return; }
-    setForm({ name: '', address: '', radius_m: '150' }); load();
+    setForm({ name: '', address: '', radius_m: '150' }); showToast('Localização adicionada.'); load();
   }
   async function toggle(id: string, active: boolean) {
     const res = await callFunction('admin-mutate', { table: 'work_locations', action: 'update', company_id: companyId, id, payload: { active: !active } });
     if (!res.ok) { alert(friendlyError((res.data as any)?.error)); return; }
+    showToast(active ? 'Desativada.' : 'Ativada.');
     load();
   }
 
@@ -379,6 +399,7 @@ function Locations({ companyId }: { companyId: string }) {
 
 /* ---------------------------- Access ---------------------------- */
 function Access({ companyId }: { companyId: string }) {
+  const showToast = useToast();
   const [list, setList] = React.useState<any[]>([]);
   React.useEffect(() => { load(); }, [companyId]);
   async function load() {
@@ -388,6 +409,7 @@ function Access({ companyId }: { companyId: string }) {
   async function revoke(id: string) {
     const res = await callFunction('admin-mutate', { table: 'employee_access', action: 'revoke', company_id: companyId, id });
     if (!res.ok) { alert(friendlyError((res.data as any)?.error)); return; }
+    showToast('Acesso revogado.');
     load();
   }
   return (
@@ -413,6 +435,7 @@ function Access({ companyId }: { companyId: string }) {
 
 /* ---------------------------- Company ---------------------------- */
 function CompanySettings({ companyId, role }: { companyId: string; role: string }) {
+  const showToast = useToast();
   const [company, setCompany] = React.useState<any>(null);
   const [saved, setSaved] = React.useState(false);
   const canEdit = ['owner', 'admin'].includes(role);
@@ -431,7 +454,7 @@ function CompanySettings({ companyId, role }: { companyId: string; role: string 
       person_label: company.person_label, people_label: company.people_label,
       entry_label: company.entry_label, exit_label: company.exit_label, exit_enabled: company.exit_enabled
     }});
-    if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 2000); }
+    if (res.ok) { setSaved(true); showToast('Configurações salvas.'); setTimeout(() => setSaved(false), 2000); }
     else alert(friendlyError((res.data as any)?.error));
   }
   if (!company) return <p className="empty-row">Carregando...</p>;
@@ -472,6 +495,7 @@ function CompanySettings({ companyId, role }: { companyId: string; role: string 
 
 /* ---------------------------- Bulk Import ---------------------------- */
 function BulkImport({ companyId, labels }: { companyId: string; labels: { person_label: string; people_label: string } }) {
+  const showToast = useToast();
   const [rows, setRows] = React.useState<Record<string, string>[]>([]);
   const [csvName, setCsvName] = React.useState('');
   const [zipFile, setZipFile] = React.useState<File | null>(null);
@@ -493,6 +517,7 @@ function BulkImport({ companyId, labels }: { companyId: string; labels: { person
     const res = await callFunction<{ imported?: number; error?: string; employees?: { id: string; registration_code: string }[] }>('bulk-import-employees', { company_id: companyId, rows });
     if (!res.ok) { setLog(l => [...l, friendlyError((res.data as any)?.error)]); setBusy(false); return; }
     setLog(l => [...l, `${res.data.imported} pessoa(s) importada(s) com sucesso.`]);
+    showToast(`${res.data.imported} pessoa(s) importada(s).`);
 
     if (zipFile && res.data.employees?.length) {
       setLog(l => [...l, 'Processando fotos do arquivo zip...']);
