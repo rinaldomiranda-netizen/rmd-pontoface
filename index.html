@@ -12,6 +12,23 @@
   <link rel="apple-touch-icon" href="/icon.svg" />
   <link rel="icon" href="/icon.svg" />
   <link rel="stylesheet" href="/mobile-dashboard-fix.css" />
+  <script>
+    // Select the correct static PWA manifest before the app boots.
+    // This is important on Android: dynamically replacing the manifest after
+    // React loads can prevent beforeinstallprompt from firing on employee links.
+    (function () {
+      var p = window.location.pathname;
+      var manifest = p.indexOf('/funcionario/') === 0 || p === '/funcionario'
+        ? '/manifest-funcionario.webmanifest'
+        : p.indexOf('/admin') === 0
+          ? '/manifest-empresa.webmanifest'
+          : p.indexOf('/rmd') === 0
+            ? '/manifest-rmd.webmanifest'
+            : '/manifest.webmanifest';
+      var link = document.getElementById('app-manifest');
+      if (link) link.href = manifest;
+    })();
+  </script>
   <title>RMD PontoFace</title>
 </head>
 <body>
