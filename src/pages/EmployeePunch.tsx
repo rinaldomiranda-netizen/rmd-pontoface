@@ -199,31 +199,38 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
 
             const score = result.blinkScore;
 
-            // Primeiro garante que os olhos estavam abertos. Depois procura
-            // um pico claro de fechamento e a volta aos olhos abertos.
+            // Máquina de estados correta:
+            // 1) confirma olhos abertos;
+            // 2) detecta fechamento;
+            // 3) detecta reabertura.
+            // O código anterior tentava confirmar abertura e fechamento
+            // no mesmo quadro, tornando a piscada impossível de concluir.
             if (!blinkSeenRef.current) {
-              if (score < 0.25) {
-                eyesOpenFramesRef.current = Math.min(8, eyesOpenFramesRef.current + 1);
+              if (score < 0.30) {
+                eyesOpenFramesRef.current = Math.min(10, eyesOpenFramesRef.current + 1);
               } else {
-                eyesOpenFramesRef.current = 0;
+                eyesOpenFramesRef.current = Math.max(0, eyesOpenFramesRef.current - 1);
               }
 
-              if (eyesOpenFramesRef.current >= 4 && score >= 0.48) {
+              if (eyesOpenFramesRef.current >= 3 && score >= 0.42) {
                 blinkSeenRef.current = true;
                 blinkStartedAtRef.current = Date.now();
                 setHint('Piscada detectada. Abra os olhos.');
               }
             } else {
               const elapsed = Date.now() - blinkStartedAtRef.current;
-              if (score < 0.28 && elapsed >= 70 && elapsed <= 2500) {
+
+              // Depois do fechamento, esperamos a reabertura.
+              if (score < 0.30 && elapsed >= 80 && elapsed <= 3000) {
                 await finishBlink();
                 return;
               }
 
-              if (elapsed > 3000) {
+              if (elapsed > 3500) {
                 blinkSeenRef.current = false;
                 blinkStartedAtRef.current = 0;
-                setHint('Não concluí a piscada. Olhe para a câmera e tente novamente.');
+                eyesOpenFramesRef.current = 0;
+                setHint('Tente novamente: mantenha os olhos abertos e pisque uma vez.');
               }
             }
           } else if (Date.now() - lastDetectAtRef.current > 1200) {
