@@ -10,9 +10,10 @@ export function useAutoRefresh(
   refresh: () => void | Promise<void>,
   channelName: string,
   changes: ChangeSpec[] = [],
-  intervalMs = 7000
+  intervalMs = 15000
 ) {
   const refreshRef = React.useRef(refresh);
+  const lastRunRef = React.useRef(0);
 
   React.useEffect(() => {
     refreshRef.current = refresh;
@@ -24,20 +25,20 @@ export function useAutoRefresh(
 
     const run = () => {
       if (disposed || document.visibilityState === 'hidden' || !navigator.onLine) return;
+      const now = Date.now();
+      if (now - lastRunRef.current < 3000) return;
+      lastRunRef.current = now;
       void refreshRef.current();
     };
 
-    const onFocus = () => run();
     const onOnline = () => run();
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') run();
-    };
 
+    // Do one initial load. Do not refresh on focus/visibility changes: those
+    // events were causing the mobile dashboard to repeatedly redraw and flash
+    // "Carregando..." when the user opened/closed the menu or returned to it.
     run();
-    timer = window.setInterval(run, intervalMs);
-    window.addEventListener('focus', onFocus);
+    timer = window.setInterval(run, Math.max(intervalMs, 15000));
     window.addEventListener('online', onOnline);
-    document.addEventListener('visibilitychange', onVisible);
 
     const channel = changes.length ? supabase.channel('rmd-live-' + channelName) : null;
     if (channel) {
@@ -56,9 +57,7 @@ export function useAutoRefresh(
     return () => {
       disposed = true;
       if (timer) window.clearInterval(timer);
-      window.removeEventListener('focus', onFocus);
       window.removeEventListener('online', onOnline);
-      document.removeEventListener('visibilitychange', onVisible);
       if (channel) void supabase.removeChannel(channel);
     };
   }, [channelName, changes.map(c => c.table + ':' + (c.filter || '')).join('|'), intervalMs]);
