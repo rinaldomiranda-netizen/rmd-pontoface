@@ -22,8 +22,6 @@ jobs:
           p = Path('src/pages/AdminDashboard.tsx')
           s = p.read_text(encoding='utf-8')
 
-          # Prevent the live refresh from replacing the attendance cards with
-          # "Carregando..." every 5 seconds. Loading is shown only on first load.
           old = "  const [loading, setLoading] = React.useState(false);\n  const canReset = ['owner', 'admin', 'hr'].includes(role);"
           new = "  const [loading, setLoading] = React.useState(true);\n  const initialLoadRef = React.useRef(true);\n  const canReset = ['owner', 'admin', 'hr'].includes(role);"
           if old in s and 'initialLoadRef' not in s:
@@ -39,9 +37,6 @@ jobs:
           if old in s:
               s = s.replace(old, new, 1)
 
-          # The attendance card needs the configured entry/exit times so it can
-          # show only the deviation of the first entry, rather than the complete
-          # running daily balance.
           old = ".select('employee_id,weekday,enabled,morning_enabled,afternoon_enabled').eq('company_id', companyId)"
           new = ".select('employee_id,weekday,enabled,morning_enabled,afternoon_enabled,entry_time,exit_time').eq('company_id', companyId)"
           if old in s:
@@ -56,26 +51,24 @@ jobs:
           new = "                {entryDelta !== null && entryDelta !== 0 && (\n                  <div style={{fontWeight:800,color:entryDelta>0?'var(--danger)':'var(--brand-2)'}}>\n                    {entryDelta > 0 ? 'Atraso na entrada: ' + entryDelta + ' min' : 'Entrada antecipada: +' + Math.abs(entryDelta) + ' min'}\n                  </div>\n                )}"
           if old in s:
               s = s.replace(old, new, 1)
-
           p.write_text(s, encoding='utf-8')
 
-          # Keep the employee-facing summary consistent: do not expose the
-          # complete negative balance immediately after an entry punch.
           p2 = Path('src/pages/EmployeePunch.tsx')
           e = p2.read_text(encoding='utf-8')
+
           old = "              <div style={{ marginTop: 3, color: Number(dashboard.today.balance) < 0 ? 'var(--danger)' : 'var(--brand-2)', fontWeight: 800 }}>\n                Saldo: {dashboard.today.balance == null ? '0 min' : (Number(dashboard.today.balance) > 0 ? '+' : '') + Math.round(Number(dashboard.today.balance)) + ' min'}\n              </div>"
           new = "              {(() => {\n                const firstEntry = (Array.isArray(dashboard.today?.rows) ? dashboard.today.rows : []).find((r:any) => r.punch_type === 'entry');\n                const scheduled = dashboard.today?.schedule?.entry_time;\n                if (!firstEntry || !scheduled) return null;\n                const [sh, sm] = String(scheduled).slice(0,5).split(':').map(Number);\n                const dt = new Date(firstEntry.occurred_at);\n                const delta = (dt.getHours() * 60 + dt.getMinutes()) - (sh * 60 + sm);\n                if (!delta) return null;\n                return <div style={{ marginTop: 3, color: delta > 0 ? 'var(--danger)' : 'var(--brand-2)', fontWeight: 800 }}>{delta > 0 ? 'Atraso na entrada: ' + delta + ' min' : 'Entrada antecipada: +' + Math.abs(delta) + ' min'}</div>;\n              })()}"
+          if old in e:
+              e = e.replace(old, new, 1)
+
+          old = "              const balance = Number(h.balance_minutes ?? 0);\n              return ("
+          new = "              return ("
           if old in e:
               e = e.replace(old, new, 1)
 
           old = "                  {h.balance_minutes != null && balance !== 0 && (\n                    <div style={{ marginTop: 3, color: balance < 0 ? 'var(--danger)' : 'var(--brand-2)', fontWeight: 800 }}>\n                      Saldo {balance > 0 ? '+' : ''}{Math.round(balance)} min\n                    </div>\n                  )}"
           if old in e:
               e = e.replace(old, '', 1)
-
-          old = "        const balance = Number(h.balance_minutes ?? 0);\n              return ("
-          new = "              return ("
-          if old in e:
-              e = e.replace(old, new, 1)
 
           old = "        const balance = Number(data.balance_minutes ?? 0);\n        const saldo = balance > 0 ? ' • Saldo +' + Math.round(balance) + ' min' : balance < 0 ? ' • Faltam ' + Math.abs(Math.round(balance)) + ' min' : '';\n        setMessage(`Ponto confirmado às ${new Date(currentPunch.occurred_at).toLocaleTimeString('pt-BR')}${loc ? ' — ' + loc : ''}.${saldo}`);"
           new = "        setMessage(`Ponto confirmado às ${new Date(currentPunch.occurred_at).toLocaleTimeString('pt-BR')}${loc ? ' — ' + loc : ''}.`);"
@@ -93,5 +86,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/pages/AdminDashboard.tsx src/pages/EmployeePunch.tsx
-          git commit -m "fix: hide cumulative balance from today punch list"
+          git commit -m "fix: remove per-punch cumulative balance display"
           git push
