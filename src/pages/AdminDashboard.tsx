@@ -1016,9 +1016,6 @@ function CompanySettings({ companyId, role }: { companyId: string; role: string 
 
   React.useEffect(() => {
     load();
-    const sync = () => { void load(); };
-    window.addEventListener('rmd:company-sync', sync);
-    return () => window.removeEventListener('rmd:company-sync', sync);
   }, [companyId]);
   async function load() {
     const { data } = await supabase.from('companies').select('*').eq('id', companyId).single();
