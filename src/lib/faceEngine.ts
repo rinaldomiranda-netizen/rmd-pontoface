@@ -6,19 +6,43 @@ let loadingPromise: Promise<void> | null = null;
 export function loadFaceModels(): Promise<void> {
   if (modelsLoaded) return Promise.resolve();
   if (loadingPromise) return loadingPromise;
+
   loadingPromise = (async () => {
-    const url = '/models';
+    // Os modelos ficam em uma origem estável de modelos do face-api.js.
+    // Carregamos cada rede da sua própria pasta, evitando falhas de rota
+    // do servidor da aplicação para os arquivos binários dos modelos.
+    const CDN = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js-models@master';
+
     try {
-      await faceapi.nets.tinyFaceDetector.loadFromUri(url);
-    } catch (e) { loadingPromise = null; throw new Error('tinyFaceDetector: ' + ((e as any)?.message || e)); }
+      await faceapi.nets.tinyFaceDetector.loadFromUri(
+        `${CDN}/tiny_face_detector`
+      );
+    } catch (e) {
+      loadingPromise = null;
+      throw new Error('tinyFaceDetector: ' + ((e as any)?.message || e));
+    }
+
     try {
-      await faceapi.nets.faceLandmark68Net.loadFromUri(url);
-    } catch (e) { loadingPromise = null; throw new Error('faceLandmark68Net: ' + ((e as any)?.message || e)); }
+      await faceapi.nets.faceLandmark68Net.loadFromUri(
+        `${CDN}/face_landmark_68`
+      );
+    } catch (e) {
+      loadingPromise = null;
+      throw new Error('faceLandmark68Net: ' + ((e as any)?.message || e));
+    }
+
     try {
-      await faceapi.nets.faceRecognitionNet.loadFromUri(url);
-    } catch (e) { loadingPromise = null; throw new Error('faceRecognitionNet: ' + ((e as any)?.message || e)); }
+      await faceapi.nets.faceRecognitionNet.loadFromUri(
+        `${CDN}/face_recognition`
+      );
+    } catch (e) {
+      loadingPromise = null;
+      throw new Error('faceRecognitionNet: ' + ((e as any)?.message || e));
+    }
+
     modelsLoaded = true;
   })();
+
   return loadingPromise;
 }
 
