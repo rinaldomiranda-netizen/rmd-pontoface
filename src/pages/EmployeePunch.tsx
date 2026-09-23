@@ -23,6 +23,8 @@ type Punch = {
   liveness_status: 'offline_pending' | 'passed' | 'failed';
   descriptor?: number[];
   sync_status: 'pending' | 'syncing' | 'synced' | 'expired';
+  location_label?: string | null;
+  location_address?: string | null;
 };
 
 function openDb(): Promise<IDBDatabase> {
@@ -372,13 +374,55 @@ function EmployeePunch() {
 
   async function refreshQueue() { setPending(await queueAll()); }
 
-  async function getGeolocation(): Promise<{ latitude: number | null; longitude: number | null; accuracy: number | null }> {
-    if (!navigator.geolocation) return { latitude: null, longitude: null, accuracy: null };
-    return new Promise(resolve => navigator.geolocation.getCurrentPosition(
-      p => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy }),
-      () => resolve({ latitude: null, longitude: null, accuracy: null }),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    ));
+  async function reverseGeocode(latitude: number, longitude: number): Promise<{ label: string | null; address: string | null }> {
+    try {
+      const url = 'https://photon.komoot.io/reverse?lang=pt&limit=1&lon=' + encodeURIComponent(String(longitude)) + '&lat=' + encodeURIComponent(String(latitude));
+      const r = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!r.ok) return { label: null, address: null };
+      const data = await r.json();
+      const p = data?.features?.[0]?.properties || {};
+      const street = [p.street, p.housenumber].filter(Boolean).join(', ');
+      const neighborhood = p.suburb || p.district || p.locality || '';
+      const city = p.city || p.town || p.village || '';
+      const state = p.state || '';
+      const parts = [street, neighborhood, city, state].filter(Boolean);
+      return { label: street || neighborhood || city || null, address: parts.length ? parts.join(' — ') : null };
+    } catch {
+      return { label: null, address: null };
+    }
+  }
+
+  async function getGeolocation(): Promise<{ latitude: number | null; longitude: number | null; accuracy: number | null; location_label: string | null; location_address: string | null }> {
+    const empty = { latitude: null, longitude: null, accuracy: null, location_label: null, location_address: null };
+    if (!navigator.geolocation) return empty;
+    const position = await new Promise<GeolocationPosition | null>(resolve => {
+      let best: GeolocationPosition | null = null;
+      let finished = false;
+      let timer: number | null = null;
+      let watchId: number | null = null;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        if (timer) window.clearTimeout(timer);
+        if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+        resolve(best);
+      };
+      watchId = navigator.geolocation.watchPosition(
+        p => {
+          if (!best || p.coords.accuracy < best.coords.accuracy) best = p;
+          if (p.coords.accuracy != null && p.coords.accuracy <= 25) window.setTimeout(finish, 450);
+        },
+        () => finish(),
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 12000 }
+      );
+      timer = window.setTimeout(finish, 6500);
+    });
+    if (!position) return empty;
+    const latitude = position.coords.latitude;
+    const longitude = position.coords.longitude;
+    const accuracy = position.coords.accuracy;
+    const place = await reverseGeocode(latitude, longitude);
+    return { latitude, longitude, accuracy, location_label: place.label, location_address: place.address };
   }
 
   function basePunch(type: 'entry' | 'exit'): Punch {
@@ -399,9 +443,12 @@ function EmployeePunch() {
       setMessage('Link do funcionário incompleto. Gere novamente o acesso no painel da empresa.');
       return;
     }
+    setMessage('Obtendo localização precisa...');
     const geo = await getGeolocation();
     const p = basePunch(type);
     p.latitude = geo.latitude; p.longitude = geo.longitude; p.location_accuracy_m = geo.accuracy;
+    p.location_label = geo.location_label;
+    p.location_address = geo.location_address;
     setSelectedPunch(p);
     if (!navigator.onLine) {
       await queuePut(p); await refreshQueue();
@@ -423,6 +470,7 @@ function EmployeePunch() {
           punch_type: punch.punch_type, occurred_at: punch.occurred_at,
           idempotency_key: punch.idempotency_key, client_event_id: punch.client_event_id,
           latitude: punch.latitude, longitude: punch.longitude, location_accuracy_m: punch.location_accuracy_m,
+          location_label: punch.location_label, location_address: punch.location_address,
           client_captured_at: punch.client_captured_at, client_timezone: punch.client_timezone, offline: false,
           liveness_passed: true, descriptor: result.descriptor
         })
