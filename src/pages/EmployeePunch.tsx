@@ -503,6 +503,27 @@ function EmployeePunch() {
         const balance = Number(data.balance_minutes ?? 0);
         const saldo = balance > 0 ? ' • Saldo +' + Math.round(balance) + ' min' : balance < 0 ? ' • Faltam ' + Math.abs(Math.round(balance)) + ' min' : '';
         setMessage(`Ponto confirmado às ${new Date(currentPunch.occurred_at).toLocaleTimeString('pt-BR')}${loc ? ' — ' + loc : ''}.${saldo}`);
+        setDashboard((current: any) => current ? {
+          ...current,
+          today: {
+            ...current.today,
+            rows: [...(Array.isArray(current.today?.rows) ? current.today.rows : []), {
+              id: data.attendance_id,
+              punch_type: data.punch_type,
+              occurred_at: data.occurred_at,
+              location_label: data.location_label,
+              location_address: data.location_address,
+              location_status: data.location_status,
+              balance_minutes: data.balance_minutes
+            }]
+          }
+        } : current);
+        refreshEmployeeDashboard();
+      } else if (data.reason === 'duplicate_punch_type' || data.reason === 'wrong_punch_order') {
+        setMessage(data.message || 'Essa marcação não está liberada agora. Siga a sequência de entrada e saída.');
+        refreshEmployeeDashboard();
+      } else if (data.reason === 'daily_punch_limit') {
+        setMessage('A jornada de hoje já foi finalizada.');
         refreshEmployeeDashboard();
       } else if (data.reason === 'face_not_matched') {
         setMessage('O rosto não corresponde ao cadastro. Tente novamente, com boa iluminação.');
@@ -569,7 +590,7 @@ function EmployeePunch() {
       {dayFinalized && (
         <div className="fallback" style={{ marginTop: 12, marginBottom: 14, border: '1px solid var(--border)' }}>
           <b>Jornada de hoje finalizada</b>
-          <div className="helptext" style={{ marginTop: 4 }}>Os 4 registros previstos para hoje foram concluídos. Os registros anteriores permanecem armazenados no histórico.</div>
+          <div className="helptext" style={{ marginTop: 4 }}>Os {maxPunchesToday} registros previstos para hoje foram concluídos. Os registros anteriores permanecem armazenados no histórico.</div>
         </div>
       )}
 
