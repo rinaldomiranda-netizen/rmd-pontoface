@@ -14,22 +14,124 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Patch attendance live refresh
+      - name: Patch attendance live refresh and partial-day balance
         shell: python
         run: |
           from pathlib import Path
+
           p = Path('src/pages/AdminDashboard.tsx')
           s = p.read_text(encoding='utf-8')
-          marker = "  // LIVE_ATTENDANCE_REFRESH_ENABLED\n"
-          if marker in s:
-              print('Attendance live refresh already enabled.')
-          else:
+          changed = False
+
+          live_marker = "  // LIVE_ATTENDANCE_REFRESH_ENABLED\n"
+          if live_marker not in s:
               needle = "  React.useEffect(() => { load(); }, [companyId, date]);\n"
-              insert = needle + "\n" + marker + "  useAutoRefresh(\n    load,\n    'attendance-' + companyId + '-' + date,\n    [\n      { table: 'attendance_records', filter: 'company_id=eq.' + companyId },\n      { table: 'attendance_alerts', filter: 'company_id=eq.' + companyId },\n      { table: 'employees', filter: 'company_id=eq.' + companyId },\n      { table: 'employee_work_schedules', filter: 'company_id=eq.' + companyId }\n    ],\n    5000\n  );\n"
+              insert = needle + "\n" + live_marker + "  useAutoRefresh(\n    load,\n    'attendance-' + companyId + '-' + date,\n    [\n      { table: 'attendance_records', filter: 'company_id=eq.' + companyId },\n      { table: 'attendance_alerts', filter: 'company_id=eq.' + companyId },\n      { table: 'employees', filter: 'company_id=eq.' + companyId },\n      { table: 'employee_work_schedules', filter: 'company_id=eq.' + companyId }\n    ],\n    5000\n  );\n"
               if needle not in s:
                   raise SystemExit('Attendance effect marker not found; no file changed.')
-              p.write_text(s.replace(needle, insert, 1), encoding='utf-8')
-              print('Attendance live refresh patch applied.')
+              s = s.replace(needle, insert, 1)
+              changed = True
+
+          marker = "  // FIX_PARTIAL_BALANCE_V2\n"
+          if marker not in s:
+              needle = "  const canReset = ['owner', 'admin', 'hr'].includes(role);\n"
+              insert = needle + "\n" + marker + "  const firstAttendanceLoadRef = React.useRef(true);\n"
+              if needle not in s:
+                  raise SystemExit('Attendance state marker not found; no file changed.')
+              s = s.replace(needle, insert, 1)
+
+              old = """  async function load() {
+    setLoading(true);
+    const start = new Date(date + 'T00:00:00');"""
+              new = """  async function load() {
+    const isInitialLoad = firstAttendanceLoadRef.current;
+    if (isInitialLoad) setLoading(true);
+    const start = new Date(date + 'T00:00:00');"""
+              if old not in s:
+                  raise SystemExit('Attendance load start not found; no file changed.')
+              s = s.replace(old, new, 1)
+
+              old = """    setRows(dayRows || []);
+    setEmployees(empRows || []);
+    setSchedules(schedRows || []);
+    setAlerts(alertRows || []);
+    setAllRecords(historyRows || []);
+    setLoading(false);
+  }"""
+              new = """    setRows(dayRows || []);
+    setEmployees(empRows || []);
+    setSchedules(schedRows || []);
+    setAlerts(alertRows || []);
+    setAllRecords(historyRows || []);
+    if (isInitialLoad) {
+      firstAttendanceLoadRef.current = false;
+      setLoading(false);
+    }
+  }"""
+              if old not in s:
+                  raise SystemExit('Attendance load end not found; no file changed.')
+              s = s.replace(old, new, 1)
+
+              old = """    for (const r of lastByDay.values()) {
+      if (map.has(r.employee_id)) map.get(r.employee_id).totalBalance += Number(r.balance_minutes || 0);
+    }
+    return [...map.values()].sort((a,b) => String(a.employee.full_name).localeCompare(String(b.employee.full_name)));"""
+              new = """    for (const r of lastByDay.values()) {
+      if (!map.has(r.employee_id)) continue;
+      const dayKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date(r.occurred_at));
+      const item = map.get(r.employee_id);
+      const maxForSelectedDay = item.schedule?.afternoon_enabled === true ? 4 : (item.schedule?.enabled === false ? 0 : 2);
+      const isSelectedDay = dayKey === date;
+      const incompleteSelectedDay = isSelectedDay && maxForSelectedDay > 0 && item.rows.length < maxForSelectedDay;
+      if (!incompleteSelectedDay) item.totalBalance += Number(r.balance_minutes || 0);
+    }
+
+    // Durante o dia, nunca transformar as horas que ainda não aconteceram em dívida.
+    // Se a jornada ainda não terminou, mostramos apenas o desvio já ocorrido (ex.: entrada 15 min atrasada).
+    for (const item of map.values()) {
+      const maxForSelectedDay = item.schedule?.afternoon_enabled === true ? 4 : (item.schedule?.enabled === false ? 0 : 2);
+      if (maxForSelectedDay > 0 && item.rows.length < maxForSelectedDay) {
+        const entryAlert = item.alerts.find((a: any) =>
+          /entrada/i.test(String(a.message || '')) && /após|antes|atrasad|adiantad/i.test(String(a.message || '')) && a.minutes_delta != null
+        );
+        if (entryAlert) item.totalBalance += -Number(entryAlert.minutes_delta || 0);
+      }
+    }
+    return [...map.values()].sort((a,b) => String(a.employee.full_name).localeCompare(String(b.employee.full_name)));"""
+              if old not in s:
+                  raise SystemExit('Attendance accumulated balance block not found; no file changed.')
+              s = s.replace(old, new, 1)
+
+              old = """          const balance = item.rows.length ? Number(item.rows[item.rows.length-1].balance_minutes || 0) : 0;
+          const completed = item.rows.length;
+          const maxToday = item.schedule?.afternoon_enabled === true ? 4 : (item.schedule?.enabled === false ? 0 : 2);"""
+              new = """          const completed = item.rows.length;
+          const maxToday = item.schedule?.afternoon_enabled === true ? 4 : (item.schedule?.enabled === false ? 0 : 2);
+          const dayComplete = maxToday > 0 && completed >= maxToday;
+          const entryAlert = item.alerts.find((a:any) =>
+            /entrada/i.test(String(a.message || '')) && /após|antes|atrasad|adiantad/i.test(String(a.message || '')) && a.minutes_delta != null
+          );
+          const balance = dayComplete
+            ? Number(item.rows[item.rows.length-1]?.balance_minutes || 0)
+            : (entryAlert ? -Number(entryAlert.minutes_delta || 0) : 0);"""
+              if old not in s:
+                  raise SystemExit('Attendance day balance block not found; no file changed.')
+              s = s.replace(old, new, 1)
+
+              s = s.replace(
+                """                <div style={{fontWeight:800,color:balance<0?'var(--danger)':balance>0?'var(--brand-2)':'inherit'}}>
+                  Saldo do dia: {balance>0?'+':''}{balance} min
+                </div>""",
+                """                <div style={{fontWeight:800,color:balance<0?'var(--danger)':balance>0?'var(--brand-2)':'inherit'}}>
+                  {dayComplete ? 'Saldo do dia' : (balance < 0 ? 'Atraso registrado' : balance > 0 ? 'Adiantamento registrado' : 'Saldo do dia')}: {balance>0?'+':''}{Math.round(balance)} min
+                </div>""", 1)
+              changed = True
+
+          if changed:
+              p.write_text(s, encoding='utf-8')
+              print('Attendance live refresh/partial-day balance patch applied.')
+          else:
+              print('No changes needed.')
       - name: Commit patch
         shell: bash
         run: |
@@ -40,5 +142,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/pages/AdminDashboard.tsx
-          git commit -m "fix: auto refresh company attendance"
+          git commit -m "fix: prevent projected daily deficit during attendance"
           git push
