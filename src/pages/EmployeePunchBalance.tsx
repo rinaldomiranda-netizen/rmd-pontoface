@@ -15,12 +15,7 @@ type PunchRow = {
 
 type Dashboard = {
   employee?: { full_name?: string };
-  today?: {
-    rows?: PunchRow[];
-    balance?: number;
-    worked?: number;
-    schedule?: any;
-  };
+  today?: { rows?: PunchRow[]; balance?: number; worked?: number; schedule?: any };
   history?: PunchRow[];
 };
 
@@ -65,15 +60,14 @@ function rowsContainer(card: HTMLElement) {
   return Array.from(card.querySelectorAll('div')).find(el => getComputedStyle(el).display === 'grid' && el.children.length > 0) as HTMLElement | undefined;
 }
 
-function decorateRows(root: HTMLElement, card: HTMLElement | undefined, rows: PunchRow[]) {
+function decorateRows(card: HTMLElement | undefined, rows: PunchRow[]) {
   if (!card) return;
   const grid = rowsContainer(card);
   if (!grid) return;
-  const children = Array.from(grid.children).filter(el => !(el as HTMLElement).dataset.pontoBalanceRow);
+  const children = Array.from(grid.children);
   rows.forEach((item, index) => {
     const row = children[index];
     if (!row) return;
-    (row as HTMLElement).dataset.pontoBalanceRow = '1';
     addBadge(row, item);
   });
 }
@@ -123,7 +117,7 @@ function decorateHistory(root: HTMLElement, dashboard: Dashboard) {
   if (!card) return;
   const todayIds = new Set((dashboard.today?.rows || []).map(r => r.id).filter(Boolean));
   const rows = (dashboard.history || []).filter(r => !r.id || !todayIds.has(r.id));
-  decorateRows(root, card, rows);
+  decorateRows(card, rows);
 }
 
 function EmployeePunchBalance() {
@@ -161,14 +155,12 @@ function EmployeePunchBalance() {
       const root = document.querySelector('.theme-employee') as HTMLElement | null;
       if (!root) return;
       updateSummary(root, dashboard);
-      decorateRows(root, findCard(root, 'Pontos de hoje') as HTMLElement | undefined, dashboard.today?.rows || []);
+      decorateRows(findCard(root, 'Pontos de hoje'), dashboard.today?.rows || []);
       decorateHistory(root, dashboard);
     };
     decorate();
-    const observer = new MutationObserver(decorate);
-    observer.observe(document.body, { childList: true, subtree: true });
     const timer = window.setInterval(decorate, 1500);
-    return () => { stopped = true; observer.disconnect(); window.clearInterval(timer); };
+    return () => { stopped = true; window.clearInterval(timer); };
   }, [dashboard]);
 
   return <EmployeePunch />;
