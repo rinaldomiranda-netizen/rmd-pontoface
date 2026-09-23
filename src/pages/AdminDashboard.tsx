@@ -279,49 +279,36 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
       if (!detection) throw new Error('FACE_NOT_FOUND');
       const descriptor = Array.from(detection.descriptor);
 
-      setStatus('Confirmando cadastro facial...');
-      const enrollPromise = supabase.functions.invoke('complete-face-enrollment', {
-        body: {
-          company_id: companyId,
-          employee_id: employeeId,
-          descriptor,
-          photo_data_url: captured
-        }
-      });
-
-      const enrollResult = await Promise.race([
-        enrollPromise,
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('ENROLL_TIMEOUT')), 25000)
-        )
-      ]);
-
-      const { data, error: enrollError } = enrollResult as {
-        data: { ok?: boolean; error?: string } | null;
-        error: { message?: string } | null;
-      };
-
-      if (enrollError) {
-        console.error('complete-face-enrollment error', enrollError);
-        const message = enrollError.message || '';
-        if (message.includes('forbidden')) {
-          setStatus('Você não tem permissão para cadastrar o rosto.');
-        } else if (message.includes('employee_not_found_or_inactive')) {
-          setStatus('Funcionário não encontrado ou inativo.');
-        } else if (message.includes('invalid_descriptor')) {
-          setStatus('O rosto não pôde ser processado. Tire outra foto com boa iluminação.');
-        } else if (message.includes('invalid_photo')) {
-          setStatus('A foto não pôde ser enviada. Tire outra foto.');
-        } else if (message.includes('image_upload_failed')) {
-          setStatus('Não foi possível salvar a foto no sistema.');
-        } else {
-          setStatus('Não foi possível concluir o cadastro facial.');
-        }
+      setStatus('Salvando cadastro facial...');
+      const { data: sessionData } = await supabase.auth.getSession();
+      const authUserId = sessionData.session?.user?.id || null;
+      if (!authUserId) {
+        setStatus('Sua sessão expirou. Entre novamente no painel da empresa.');
         return;
       }
 
-      if (!data?.ok) {
-        setStatus(friendlyError(data?.error));
+      const { data: savedProfile, error: saveError } = await supabase
+        .from('facial_profiles')
+        .upsert({
+          employee_id: employeeId,
+          reference_image_path: path,
+          embedding_version: 'face-api-128-v1',
+          enrolled_at: new Date().toISOString(),
+          enrolled_by: authUserId,
+          active: true,
+          enrollment_status: 'enrolled',
+          descriptor
+        }, { onConflict: 'employee_id' })
+        .select('id,employee_id,enrollment_status')
+        .single();
+
+      if (saveError || !savedProfile) {
+        console.error('facial_profiles upsert error', saveError);
+        setStatus(
+          saveError?.message
+            ? `Não foi possível salvar o cadastro facial: ${saveError.message}`
+            : 'Não foi possível salvar o cadastro facial.'
+        );
         return;
       }
 
