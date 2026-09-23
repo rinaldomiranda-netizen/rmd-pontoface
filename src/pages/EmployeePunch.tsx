@@ -500,7 +500,10 @@ function EmployeePunch() {
       const data = await r.json();
       if (r.ok && data.approved) {
         const loc = data.location_address || data.location_label;
-        setMessage(`Ponto confirmado às ${new Date(currentPunch.occurred_at).toLocaleTimeString('pt-BR')}${loc ? ' — ' + loc : ''}.`);
+        const balance = Number(data.balance_minutes ?? 0);
+        const saldo = balance > 0 ? ' • Saldo +' + Math.round(balance) + ' min' : balance < 0 ? ' • Faltam ' + Math.abs(Math.round(balance)) + ' min' : '';
+        setMessage(`Ponto confirmado às ${new Date(currentPunch.occurred_at).toLocaleTimeString('pt-BR')}${loc ? ' — ' + loc : ''}.${saldo}`);
+        refreshEmployeeDashboard();
       } else if (data.reason === 'face_not_matched') {
         setMessage('O rosto não corresponde ao cadastro. Tente novamente, com boa iluminação.');
       } else if (data.error === 'facial_profile_not_enrolled') {
@@ -534,20 +537,51 @@ function EmployeePunch() {
     />;
   }
 
+  const todayRows = Array.isArray(dashboard?.today?.rows) ? dashboard.today.rows : [];
+  const todaySchedule = dashboard?.today?.schedule || null;
+  const hasBreak = !!todaySchedule?.break_start_time && !!todaySchedule?.break_end_time;
+  const maxPunchesToday = hasBreak ? 4 : 2;
+  const lastPunchType = todayRows.length ? todayRows[todayRows.length - 1]?.punch_type : null;
+  const nextPunchType = lastPunchType === 'entry' ? 'exit' : 'entry';
+  const dayFinalized = todayRows.length >= maxPunchesToday && lastPunchType === 'exit';
+
   return <div className="app">
     <header className="top"><div className="brand">{labels.name.includes('+') ? labels.name : <>RMD <span>PontoFace</span></>}</div><span className={online ? 'online' : 'offline'}>● {online ? 'Online' : 'Offline'}</span></header>
     <main className="employee">
       <div className="identity"><div className="avatar">👤</div><div><small>{labels.person_label}</small><h1>{employeeName}</h1></div></div>
       <div className="clock">{new Date().toLocaleTimeString('pt-BR')}</div>
       <div className="status">{message}</div>
+      <div className="actions">
+        <button
+          className="primary"
+          disabled={nextPunchType !== 'entry' || dayFinalized}
+          onClick={() => startPunch('entry')}
+        >✓ {labels.entry_label}</button>
+        {labels.exit_enabled && (
+          <button
+            className="secondary"
+            disabled={nextPunchType !== 'exit' || dayFinalized}
+            onClick={() => startPunch('exit')}
+          >⇥ {labels.exit_label}</button>
+        )}
+      </div>
+
+      {dayFinalized && (
+        <div className="fallback" style={{ marginTop: 12, marginBottom: 14, border: '1px solid var(--border)' }}>
+          <b>Jornada de hoje finalizada</b>
+          <div className="helptext" style={{ marginTop: 4 }}>Os 4 registros previstos para hoje foram concluídos. Os registros anteriores permanecem armazenados no histórico.</div>
+        </div>
+      )}
+
       {activeAlert && (
-        <div className="fallback" style={{ marginBottom: 14, border: '2px solid #e1a33a', background: '#fff8df' }}>
+        <div className="fallback" style={{ marginTop: 14, marginBottom: 14, border: '2px solid #e1a33a', background: '#fff8df' }}>
           <b>Atenção ao horário</b>
           <div style={{ marginTop: 4 }}>{activeAlert.message}</div>
           {activeAlert.minutes_delta != null && <b>{Number(activeAlert.minutes_delta) > 0 ? '+' : ''}{Math.round(Number(activeAlert.minutes_delta))} min</b>}
           <button className="link" onClick={() => setActiveAlert(null)}>Entendi</button>
         </div>
       )}
+
       {dashboard?.today?.schedule && (
         <div className="fallback" style={{ marginBottom: 14 }}>
           <b>Resumo de hoje</b>
@@ -558,24 +592,25 @@ function EmployeePunch() {
           </div>
         </div>
       )}
-      {Array.isArray(dashboard?.history) && dashboard.history.length > 0 && (
+
+      {todayRows.length > 0 && (
         <div className="fallback" style={{ marginBottom: 14 }}>
-          <b>Histórico de pontos</b>
+          <b>Pontos de hoje</b>
           <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
-            {dashboard.history.slice(0, 10).map((h: any) => {
+            {todayRows.slice(0, maxPunchesToday).map((h: any) => {
               const dt = new Date(h.occurred_at);
               const balance = Number(h.balance_minutes ?? 0);
               return (
                 <div key={h.id} style={{ borderTop: '1px solid var(--border)', paddingTop: 8 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                     <b>{h.punch_type === 'entry' ? 'Entrada' : 'Saída'}</b>
-                    <span>{dt.toLocaleDateString('pt-BR')} {dt.toLocaleTimeString('pt-BR')}</span>
+                    <span>{dt.toLocaleTimeString('pt-BR')}</span>
                   </div>
                   <div className="helptext" style={{ marginTop: 3 }}>
                     {h.location_address || h.location_label || 'Localização não identificada'}
                   </div>
-                  {h.location_status === 'inside' && <div className="helptext">Dentro do local autorizado{h.location_distance_m != null ? ' • ' + Math.round(h.location_distance_m) + ' m' : ''}</div>}
-                  {h.location_status === 'outside' && <div className="helptext" style={{ color: 'var(--danger)' }}>Fora do local autorizado{h.location_distance_m != null ? ' • ' + Math.round(h.location_distance_m) + ' m' : ''}</div>}
+                  {h.location_status === 'inside' && <div className="helptext">Dentro do local autorizado</div>}
+                  {h.location_status === 'outside' && <div className="helptext" style={{ color: 'var(--danger)' }}>Fora do local autorizado</div>}
                   {h.balance_minutes != null && balance !== 0 && (
                     <div style={{ marginTop: 3, color: balance < 0 ? 'var(--danger)' : 'var(--brand-2)', fontWeight: 800 }}>
                       Saldo {balance > 0 ? '+' : ''}{Math.round(balance)} min
@@ -587,10 +622,31 @@ function EmployeePunch() {
           </div>
         </div>
       )}
-      <div className="actions">
-        <button className="primary" onClick={() => startPunch('entry')}>✓ {labels.entry_label}</button>
-        {labels.exit_enabled && <button className="secondary" onClick={() => startPunch('exit')}>⇥ {labels.exit_label}</button>}
-      </div>
+
+      {Array.isArray(dashboard?.history) && dashboard.history.some((h: any) => !todayRows.some((t: any) => t.id === h.id)) && (
+        <details className="fallback" style={{ marginBottom: 14 }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 800 }}>Histórico anterior</summary>
+          <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+            {dashboard.history
+              .filter((h: any) => !todayRows.some((t: any) => t.id === h.id))
+              .map((h: any) => {
+                const dt = new Date(h.occurred_at);
+                return (
+                  <div key={h.id} style={{ borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <b>{h.punch_type === 'entry' ? 'Entrada' : 'Saída'}</b>
+                      <span>{dt.toLocaleDateString('pt-BR')} {dt.toLocaleTimeString('pt-BR')}</span>
+                    </div>
+                    <div className="helptext" style={{ marginTop: 3 }}>
+                      {h.location_address || h.location_label || 'Localização não identificada'}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </details>
+      )}
+
       {!pwa.installed && pwa.canInstall && (
         <button className="secondary" style={{ marginTop: 4 }} onClick={pwa.install}>📲 Instalar na tela inicial</button>
       )}
