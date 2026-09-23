@@ -1,6 +1,7 @@
 import React from 'react';
 import { FUNCTIONS_BASE as FUNCTIONS } from '../lib/supabaseClient';
 import { loadFaceModels, detectFace, averageEAR } from '../lib/faceEngine';
+import { usePwaInstall } from '../lib/pwaInstall';
 
 const DB_NAME = 'rmd-pontoface';
 const STORE = 'attendance_queue';
@@ -160,13 +161,6 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
 }
 
 /* ---------------- tela principal do funcionário ---------------- */
-function isIOS() {
-  return /iphone|ipad|ipod/i.test(navigator.userAgent);
-}
-function isStandalone() {
-  return window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
-}
-
 function EmployeePunch() {
   const params = new URLSearchParams(location.search);
   const pathMatch = location.pathname.match(/\/funcionario\/([^/]+)/);
@@ -180,10 +174,8 @@ function EmployeePunch() {
   const [pending, setPending] = React.useState<Punch[]>([]);
   const [selectedPunch, setSelectedPunch] = React.useState<Punch | null>(null);
   const [documentDigits, setDocumentDigits] = React.useState('');
-  const [installPrompt, setInstallPrompt] = React.useState<any>(null);
-  const [showIosHint, setShowIosHint] = React.useState(false);
-  const [installed, setInstalled] = React.useState(isStandalone());
   const [labels, setLabels] = React.useState({ name: 'RMD PontoFace', person_label: 'Funcionário', entry_label: 'Bater entrada', exit_label: 'Bater saída', exit_enabled: true });
+  const pwa = usePwaInstall(`${location.pathname}${location.search}`);
 
   React.useEffect(() => {
     if (!companyId) return;
@@ -234,24 +226,6 @@ function EmployeePunch() {
 
     return () => { cancelled = true; };
   }, [companyId, employeeId, token]);
-  React.useEffect(() => {
-    const onBip = (e: any) => { e.preventDefault(); setInstallPrompt(e); };
-    window.addEventListener('beforeinstallprompt', onBip);
-    const onInstalled = () => { setInstalled(true); setInstallPrompt(null); };
-    window.addEventListener('appinstalled', onInstalled);
-    return () => { window.removeEventListener('beforeinstallprompt', onBip); window.removeEventListener('appinstalled', onInstalled); };
-  }, []);
-
-  async function handleInstallClick() {
-    if (installPrompt) {
-      installPrompt.prompt();
-      await installPrompt.userChoice;
-      setInstallPrompt(null);
-      return;
-    }
-    if (isIOS()) { setShowIosHint(true); return; }
-  }
-
   React.useEffect(() => {
     const on = () => { setOnline(true); refreshQueue(); };
     const off = () => setOnline(false);
@@ -362,13 +336,13 @@ function EmployeePunch() {
         <button className="primary" onClick={() => startPunch('entry')}>✓ {labels.entry_label}</button>
         {labels.exit_enabled && <button className="secondary" onClick={() => startPunch('exit')}>⇥ {labels.exit_label}</button>}
       </div>
-      {!installed && (installPrompt || isIOS()) && (
-        <button className="secondary" style={{ marginTop: 4 }} onClick={handleInstallClick}>📲 Instalar na tela inicial</button>
+      {!pwa.installed && pwa.canInstall && (
+        <button className="secondary" style={{ marginTop: 4 }} onClick={pwa.install}>📲 Instalar na tela inicial</button>
       )}
-      {showIosHint && (
+      {pwa.showIosHint && (
         <div className="fallback">
           <p style={{ margin: 0 }}>No iPhone: toque no ícone de <b>Compartilhar</b> (o quadrado com a seta, na barra do navegador) e depois em <b>"Adicionar à Tela de Início"</b>.</p>
-          <button className="link" onClick={() => setShowIosHint(false)}>Entendi</button>
+          <button className="link" onClick={() => pwa.setShowIosHint(false)}>Entendi</button>
         </div>
       )}
       <button className="link" onClick={() => setMode('document')}>Problema com o reconhecimento facial</button>

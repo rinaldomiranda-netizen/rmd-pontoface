@@ -2,6 +2,7 @@ import React from 'react';
 import { supabase, callFunction, friendlyError } from '../lib/supabaseClient';
 import { loadFaceModels, detectFace } from '../lib/faceEngine';
 import { parseCsv, normalizeImportRow } from '../lib/csv';
+import { usePwaInstall } from '../lib/pwaInstall';
 import JSZip from 'jszip';
 
 const ToastContext = React.createContext<(msg: string) => void>(() => {});
@@ -25,6 +26,7 @@ const SECTIONS: { id: Section; label: string }[] = [
 export default function AdminDashboard({ companyId, role, onLogout }: Props) {
   const [section, setSection] = React.useState<Section>('overview');
   const [labels, setLabels] = React.useState({ person_label: 'Funcionário', people_label: 'Funcionários', entry_label: 'Bater entrada', exit_label: 'Bater saída', exit_enabled: true, name: 'RMD PontoFace' });
+  const pwa = usePwaInstall('/admin');
   const [toastMsg, setToastMsg] = React.useState<string | null>(null);
   const toastTimer = React.useRef<number | null>(null);
   function showToast(msg: string) {
@@ -61,8 +63,10 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
           <div className="admin-topbar">
             {section !== 'overview' && <button className="btn light back-btn" onClick={() => setSection('overview')}>← Voltar</button>}
             <h1>{navLabel(section)}</h1>
+            {!pwa.installed && pwa.canInstall && <button className="btn light" onClick={pwa.install}>Instalar aplicativo</button>}
             <button className="btn light" onClick={onLogout}>Sair</button>
           </div>
+          {pwa.showIosHint && <div className="fallback"><p style={{ margin: 0 }}>No iPhone ou iPad: toque no ícone de <b>Compartilhar</b> e depois em <b>"Adicionar à Tela de Início"</b>.</p><button className="link" onClick={() => pwa.setShowIosHint(false)}>Entendi</button></div>}
           {section === 'overview' ? <div className="mobile-nav">{nav}</div> : <div className="mobile-nav-back"><button className="btn light wide" onClick={() => setSection('overview')}>← Voltar ao menu</button></div>}
           {section === 'overview' && <Overview companyId={companyId} />}
           {section === 'employees' && <Employees companyId={companyId} role={role} labels={labels} />}
