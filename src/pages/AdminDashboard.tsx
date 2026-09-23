@@ -295,11 +295,38 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
       if (uploadError) throw new Error(`IMAGE_UPLOAD_FAILED: ${uploadError.message}`);
 
       setStatus('Salvando cadastro facial...');
-      const res = await callFunction<{ ok?: boolean; error?: string }>('enroll-employee-face', { company_id: companyId, employee_id: employeeId, descriptor, reference_image_path: path });
-      if (!res.ok) {
-        setStatus(friendlyError((res.data as any)?.error));
+      const invokePromise = supabase.functions.invoke('enroll-employee-face', {
+        body: {
+          company_id: companyId,
+          employee_id: employeeId,
+          descriptor,
+          reference_image_path: path
+        }
+      });
+
+      const invokeResult = await Promise.race([
+        invokePromise,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('ENROLL_TIMEOUT')), 20000)
+        )
+      ]);
+
+      const { data, error: invokeError } = invokeResult as {
+        data: { ok?: boolean; error?: string } | null;
+        error: { message?: string } | null;
+      };
+
+      if (invokeError) {
+        console.error('enroll-employee-face invoke error', invokeError);
+        setStatus(invokeError.message || 'Não foi possível salvar o cadastro facial.');
         return;
       }
+
+      if (!data?.ok) {
+        setStatus(friendlyError(data?.error));
+        return;
+      }
+
       setStatus('Cadastro facial concluído');
       onDone();
     } catch (error) {
