@@ -572,20 +572,21 @@ function EmployeePunch() {
       <div className="identity"><div className="avatar">👤</div><div><small>{labels.person_label}</small><h1>{employeeName}</h1></div></div>
       <div className="clock">{new Date().toLocaleTimeString('pt-BR')}</div>
       <div className="status">{message}</div>
-      <div className="actions">
-        <button
-          className="primary"
-          disabled={nextPunchType !== 'entry' || dayFinalized}
-          onClick={() => startPunch('entry')}
-        >✓ {labels.entry_label}</button>
-        {labels.exit_enabled && (
-          <button
-            className="secondary"
-            disabled={nextPunchType !== 'exit' || dayFinalized}
-            onClick={() => startPunch('exit')}
-          >⇥ {labels.exit_label}</button>
-        )}
-      </div>
+      {!dayFinalized && nextPunchType === 'entry' && (
+        <div className="actions">
+          <button className="primary" style={{ minHeight: 64, fontSize: 19, fontWeight: 900 }} onClick={() => startPunch('entry')}>
+            ✓ {labels.entry_label}
+          </button>
+        </div>
+      )}
+
+      {!dayFinalized && nextPunchType === 'exit' && labels.exit_enabled && (
+        <div className="actions">
+          <button className="secondary" style={{ minHeight: 64, fontSize: 19, fontWeight: 900, borderWidth: 3 }} onClick={() => startPunch('exit')}>
+            ⇥ {labels.exit_label}
+          </button>
+        </div>
+      )}
 
       {dayFinalized && (
         <div className="fallback" style={{ marginTop: 12, marginBottom: 14, border: '1px solid var(--border)' }}>
