@@ -13,12 +13,10 @@
   <link rel="icon" href="/icon.svg" />
   <link rel="stylesheet" href="/mobile-dashboard-fix.css" />
   <script>
-    // Select the correct static PWA manifest before the app boots.
-    // This is important on Android: dynamically replacing the manifest after
-    // React loads can prevent beforeinstallprompt from firing on employee links.
     (function () {
       var p = window.location.pathname;
-      var manifest = p.indexOf('/funcionario/') === 0 || p === '/funcionario'
+      var isEmployee = p.indexOf('/funcionario/') === 0 || p === '/funcionario';
+      var manifest = isEmployee
         ? '/manifest-funcionario.webmanifest'
         : p.indexOf('/admin') === 0
           ? '/manifest-empresa.webmanifest'
@@ -27,6 +25,54 @@
             : '/manifest.webmanifest';
       var link = document.getElementById('app-manifest');
       if (link) link.href = manifest;
+
+      // Preserve the employee's individual link when the installed PWA opens
+      // at the generic /funcionario/ start URL.
+      if (isEmployee && p !== '/funcionario/' && p !== '/funcionario') {
+        try { localStorage.setItem('rmd_employee_start_url', location.href); } catch (_) {}
+      }
+      if ((p === '/funcionario/' || p === '/funcionario') && !location.search) {
+        try {
+          var saved = localStorage.getItem('rmd_employee_start_url');
+          if (saved && saved !== location.href) location.replace(saved);
+        } catch (_) {}
+      }
+
+      // Employee install button is injected before React so it works even if
+      // the employee screen is a deep link. RMD and Company keep their own UI.
+      if (isEmployee) {
+        window.__rmdEmployeeInstall = null;
+        window.addEventListener('beforeinstallprompt', function (event) {
+          event.preventDefault();
+          window.__rmdEmployeeInstall = event;
+          var button = document.getElementById('employee-install-button');
+          if (button) button.hidden = false;
+        });
+        window.addEventListener('appinstalled', function () {
+          var button = document.getElementById('employee-install-button');
+          if (button) button.remove();
+        });
+        window.addEventListener('DOMContentLoaded', function () {
+          var button = document.createElement('button');
+          button.id = 'employee-install-button';
+          button.type = 'button';
+          button.textContent = 'Instalar PontoFace';
+          button.hidden = true;
+          button.style.cssText = 'position:fixed;right:14px;top:14px;z-index:99999;border:0;border-radius:12px;padding:11px 14px;background:#0d9488;color:#fff;font:800 13px system-ui;box-shadow:0 5px 18px rgba(0,0,0,.22);';
+          button.onclick = async function () {
+            var promptEvent = window.__rmdEmployeeInstall;
+            if (promptEvent) {
+              await promptEvent.prompt();
+              await promptEvent.userChoice;
+              window.__rmdEmployeeInstall = null;
+              button.hidden = true;
+              return;
+            }
+            alert('No Android: abra o menu ⋮ do navegador e escolha “Instalar aplicativo” ou “Adicionar à tela inicial”. No iPhone: toque em Compartilhar e depois em “Adicionar à Tela de Início”.');
+          };
+          document.body.appendChild(button);
+        });
+      }
     })();
   </script>
   <title>RMD PontoFace</title>
