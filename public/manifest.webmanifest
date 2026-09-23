@@ -1,7 +1,7 @@
 {
   "name": "RMD PontoFace",
   "short_name": "PontoFace",
-  "start_url": "/",
+  "start_url": "/entrar",
   "scope": "/",
   "display": "standalone",
   "background_color": "#f3f6f4",
