@@ -494,46 +494,178 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
 }
 /* ---------------------------- Attendance ---------------------------- */
 function Attendance({ companyId }: { companyId: string }) {
+  const showToast = useToast();
   const [rows, setRows] = React.useState<any[]>([]);
+  const [employees, setEmployees] = React.useState<any[]>([]);
+  const [alerts, setAlerts] = React.useState<any[]>([]);
+  const [allRecords, setAllRecords] = React.useState<any[]>([]);
   const [date, setDate] = React.useState(() => new Date().toISOString().slice(0, 10));
+  const [openHistory, setOpenHistory] = React.useState<string | null>(null);
+  const [historyCache, setHistoryCache] = React.useState<Record<string, any[]>>({});
+  const [loading, setLoading] = React.useState(false);
 
   React.useEffect(() => { load(); }, [companyId, date]);
+
   async function load() {
-    const start = new Date(date + 'T00:00:00'); const end = new Date(date + 'T23:59:59.999');
+    setLoading(true);
+    const start = new Date(date + 'T00:00:00'); 
+    const end = new Date(date + 'T23:59:59.999');
+    const [{ data: dayRows }, { data: empRows }, { data: alertRows }, { data: historyRows }] = await Promise.all([
+      supabase.from('attendance_records')
+        .select('id,employee_id,punch_type,occurred_at,identification_method,location_label,location_address,location_status,location_distance_m,location_accuracy_m,scheduled_minutes,worked_minutes,balance_minutes,schedule_status,offline,employee_name_snapshot')
+        .eq('company_id', companyId).gte('occurred_at', start.toISOString()).lte('occurred_at', end.toISOString())
+        .order('occurred_at', { ascending: true }),
+      supabase.from('employees').select('id,full_name,registration_code,job_title,active').eq('company_id', companyId).order('full_name'),
+      supabase.from('attendance_alerts').select('id,employee_id,alert_type,minutes_delta,message,created_at,acknowledged').eq('company_id', companyId)
+        .gte('created_at', start.toISOString()).lte('created_at', end.toISOString()).order('created_at',{ascending:false}),
+      supabase.from('attendance_records').select('id,employee_id,punch_type,occurred_at,balance_minutes').eq('company_id', companyId).order('occurred_at',{ascending:true})
+    ]);
+    setRows(dayRows || []);
+    setEmployees(empRows || []);
+    setAlerts(alertRows || []);
+    setAllRecords(historyRows || []);
+    setLoading(false);
+  }
+
+  const byEmployee = React.useMemo(() => {
+    const map = new Map<string, any>();
+    for (const e of employees) {
+      map.set(e.id, { employee: e, rows: [], alerts: [], totalBalance: 0 });
+    }
+    for (const r of rows) {
+      const id = r.employee_id;
+      if (!id) continue;
+      if (!map.has(id)) map.set(id, { employee: { id, full_name: r.employee_name_snapshot || 'Funcionário', active: true }, rows: [], alerts: [], totalBalance: 0 });
+      map.get(id).rows.push(r);
+    }
+    for (const a of alerts) {
+      if (map.has(a.employee_id)) map.get(a.employee_id).alerts.push(a);
+    }
+    // Each day has the final balance on its latest punch. Sum once per day, not once per punch.
+    const lastByDay = new Map<string, any>();
+    for (const r of allRecords) {
+      if (!r.employee_id || r.balance_minutes == null) continue;
+      const key = r.employee_id + '|' + new Date(r.occurred_at).toISOString().slice(0,10);
+      lastByDay.set(key, r);
+    }
+    for (const r of lastByDay.values()) {
+      const id = r.employee_id;
+      if (map.has(id)) map.get(id).totalBalance += Number(r.balance_minutes || 0);
+    }
+    return [...map.values()].sort((a,b)=>String(a.employee.full_name).localeCompare(String(b.employee.full_name)));
+  }, [employees, rows, alerts, allRecords]);
+
+  async function openEmployeeHistory(employeeId: string) {
+    setOpenHistory(employeeId);
+    if (historyCache[employeeId]) return;
     const { data } = await supabase.from('attendance_records')
-      .select('id,punch_type,occurred_at,identification_method,latitude,longitude,location_accuracy_m,liveness_confidence,face_match_confidence,offline,employees(full_name)')
-      .eq('company_id', companyId).gte('occurred_at', start.toISOString()).lte('occurred_at', end.toISOString())
-      .order('occurred_at', { ascending: false });
-    setRows(data || []);
+      .select('id,punch_type,occurred_at,location_label,location_address,location_status,worked_minutes,balance_minutes,schedule_status')
+      .eq('company_id', companyId).eq('employee_id', employeeId).order('occurred_at',{ascending:false}).limit(120);
+    setHistoryCache(prev => ({ ...prev, [employeeId]: data || [] }));
   }
 
   function exportCsv() {
-    const header = 'Funcionario,Tipo,Horario,Metodo,Latitude,Longitude,Precisao(m),Offline\n';
-    const body = rows.map((r: any) => [r.employees?.full_name || '', r.punch_type, r.occurred_at, r.identification_method, r.latitude ?? '', r.longitude ?? '', r.location_accuracy_m ?? '', r.offline ? 'sim' : 'nao'].join(',')).join('\n');
-    const blob = new Blob([header + body], { type: 'text/csv' });
+    const header = 'Funcionario,Tipo,Horario,Localizacao,Saldo(min),Offline\\n';
+    const body = rows.map((r:any)=>[
+      r.employee_name_snapshot || r.employee?.full_name || '',
+      r.punch_type,
+      r.occurred_at,
+      (r.location_address || r.location_label || 'Localização não identificada').replace(/,/g,' '),
+      r.balance_minutes ?? '',
+      r.offline ? 'sim' : 'nao'
+    ].join(',')).join('\\n');
+    const blob = new Blob([header + body], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = `ponto-${date}.csv`; a.click();
-    URL.revokeObjectURL(url);
+    const a = document.createElement('a'); a.href=url; a.download='ponto-'+date+'.csv'; a.click(); URL.revokeObjectURL(url);
   }
 
   return (
     <div>
-      <div className="card" style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-        <div className="field" style={{ margin: 0 }}><label>Data</label><input type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
+      <div className="card" style={{display:'flex',gap:12,alignItems:'flex-end',flexWrap:'wrap'}}>
+        <div className="field" style={{margin:0}}><label>Data</label><input type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>
         <button className="btn light" onClick={exportCsv}>Exportar CSV</button>
+        <span className="helptext">O painel mostra o dia selecionado; o histórico completo fica guardado no sistema.</span>
       </div>
+
+      {loading && <p className="empty-row">Carregando...</p>}
+
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(290px,1fr))',gap:12,marginBottom:14}}>
+        {byEmployee.map(item => {
+          const balance = item.rows.length ? Number(item.rows[item.rows.length-1].balance_minutes || 0) : 0;
+          const completed = item.rows.filter((r:any)=>r.punch_type==='entry').length + item.rows.filter((r:any)=>r.punch_type==='exit').length;
+          const hasFour = item.rows.length >= 4;
+          return (
+            <div className="card" key={item.employee.id} style={{margin:0}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+                <div>
+                  <small>Funcionário</small>
+                  <h2 style={{margin:'2px 0 0'}}>{item.employee.full_name}</h2>
+                  <div className="helptext">{item.employee.job_title || 'Funcionário'}{item.employee.registration_code ? ' • '+item.employee.registration_code : ''}</div>
+                </div>
+                <div style={{fontSize:30}}>📁</div>
+              </div>
+              <div style={{marginTop:10,display:'grid',gap:6}}>
+                <div><b>Pontos de hoje:</b> {completed}/4</div>
+                <div style={{fontWeight:800,color:balance<0?'var(--danger)':balance>0?'var(--brand-2)':'inherit'}}>
+                  Saldo do dia: {balance>0?'+':''}{balance} min
+                </div>
+                <div style={{fontWeight:800,color:item.totalBalance<0?'var(--danger)':item.totalBalance>0?'var(--brand-2)':'inherit'}}>
+                  Saldo acumulado: {item.totalBalance>0?'+':''}{Math.round(item.totalBalance)} min
+                </div>
+                {item.alerts.slice(0,2).map((a:any)=>
+                  <div key={a.id} className="helptext" style={{color:Number(a.minutes_delta)<0?'var(--danger)':'inherit'}}>⚠ {a.message}</div>
+                )}
+              </div>
+              <button className="btn light wide" style={{marginTop:10}} onClick={()=>openEmployeeHistory(item.employee.id)}>
+                {openHistory===item.employee.id ? 'Fechar histórico' : '📁 Abrir histórico'}
+              </button>
+              {openHistory===item.employee.id && (
+                <div style={{marginTop:10,maxHeight:300,overflowY:'auto'}}>
+                  {(historyCache[item.employee.id] || []).map((h:any)=>(
+                    <div key={h.id} style={{borderTop:'1px solid var(--border)',padding:'8px 0'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',gap:8}}>
+                        <b>{h.punch_type==='entry'?'Entrada':'Saída'}</b>
+                        <span>{new Date(h.occurred_at).toLocaleString('pt-BR')}</span>
+                      </div>
+                      <div className="helptext">{h.location_address || h.location_label || 'Localização não identificada'}</div>
+                      {h.balance_minutes != null && Number(h.balance_minutes)!==0 && (
+                        <div style={{fontWeight:800,color:Number(h.balance_minutes)<0?'var(--danger)':'var(--brand-2)'}}>
+                          Saldo {Number(h.balance_minutes)>0?'+':''}{Math.round(Number(h.balance_minutes))} min
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {!historyCache[item.employee.id]?.length && <div className="helptext">Nenhum histórico anterior.</div>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
       <div className="card">
+        <h2>Pontos do dia</h2>
         <table>
-          <thead><tr><th>Funcionário</th><th>Tipo</th><th>Horário</th><th>Método</th><th>Localização</th><th>Biometria</th></tr></thead>
+          <thead><tr><th>Funcionário</th><th>Tipo</th><th>Horário</th><th>Localização</th><th>Jornada / saldo</th><th>Biometria</th></tr></thead>
           <tbody>
-            {rows.map((r: any) => (
+            {rows.map((r:any)=>(
               <tr key={r.id}>
-                <td>{r.employees?.full_name || '-'}</td>
-                <td><span className="tag">{r.punch_type === 'entry' ? 'Entrada' : 'Saída'}</span></td>
+                <td>{r.employee_name_snapshot || r.employees?.full_name || '-'}</td>
+                <td><span className="tag">{r.punch_type==='entry'?'Entrada':'Saída'}</span></td>
                 <td>{new Date(r.occurred_at).toLocaleTimeString('pt-BR')}</td>
-                <td>{r.identification_method}{r.offline ? ' (offline)' : ''}</td>
-                <td>{r.latitude != null ? `${r.latitude.toFixed(5)}, ${r.longitude.toFixed(5)} (±${Math.round(r.location_accuracy_m || 0)}m)` : '—'}</td>
-                <td>{r.face_match_confidence != null ? `${Number(r.face_match_confidence).toFixed(1)}%` : '—'}</td>
+                <td>
+                  <div>{r.location_address || r.location_label || 'Localização não identificada'}</div>
+                  {r.location_status==='inside' && <div className="helptext">Dentro do local autorizado{r.location_distance_m!=null?' • '+Math.round(r.location_distance_m)+' m':''}</div>}
+                  {r.location_status==='outside' && <div className="helptext" style={{color:'var(--danger)'}}>Fora do local autorizado{r.location_distance_m!=null?' • '+Math.round(r.location_distance_m)+' m':''}</div>}
+                </td>
+                <td>
+                  <div>{r.worked_minutes!=null?'Trabalhado: '+Math.round(r.worked_minutes)+' min':'—'}</div>
+                  <div style={{fontWeight:800,color:Number(r.balance_minutes)<0?'var(--danger)':Number(r.balance_minutes)>0?'var(--brand-2)':'inherit'}}>
+                    {r.balance_minutes==null?'Saldo —':'Saldo '+(Number(r.balance_minutes)>0?'+':'')+Math.round(Number(r.balance_minutes))+' min'}
+                  </div>
+                  {r.schedule_status && <div className="helptext">{r.schedule_status==='late'?'Atraso':r.schedule_status==='overtime'?'Hora extra':r.schedule_status==='early_exit'?'Saída antecipada':r.schedule_status==='negative_balance'?'Saldo negativo':r.schedule_status==='positive_balance'?'Saldo positivo':'Normal'}</div>}
+                </td>
+                <td>{r.face_match_confidence!=null?Number(r.face_match_confidence).toFixed(1)+'%':'—'}</td>
               </tr>
             ))}
             {!rows.length && <tr><td colSpan={6} className="empty-row">Nenhum registro nesta data.</td></tr>}
@@ -543,6 +675,7 @@ function Attendance({ companyId }: { companyId: string }) {
     </div>
   );
 }
+
 
 /* ---------------------------- Locations ---------------------------- */
 function Locations({ companyId }: { companyId: string }) {
@@ -713,12 +846,20 @@ function Schedules({ companyId }: { companyId: string }) {
         setRows(days.map(([weekday]) => {
           const found = existing.find((x: any) => x.weekday === weekday);
           return found || {
-            weekday, enabled: weekday <= 5,
-            entry_time: '08:00', break_start_time: '12:00',
-            break_end_time: '14:00', exit_time: '18:00',
-            tolerance_late_minutes: 0, tolerance_early_minutes: 0,
-            notify_employee_late: true, notify_employee_missing: true,
-            notify_employee_overtime: true, notify_company: true
+            weekday,
+            enabled: weekday <= 5,
+            morning_enabled: true,
+            afternoon_enabled: false,
+            entry_time: '08:00',
+            break_start_time: '12:00',
+            break_end_time: '14:00',
+            exit_time: '18:00',
+            tolerance_late_minutes: 0,
+            tolerance_early_minutes: 0,
+            notify_employee_late: true,
+            notify_employee_missing: true,
+            notify_employee_overtime: true,
+            notify_company: true
           };
         }));
       });
@@ -742,11 +883,33 @@ function Schedules({ companyId }: { companyId: string }) {
     showToast('Jornada semanal salva.');
   }
 
+  function copyToAll(source: any) {
+    setRows(current => current.map(r => ({
+      ...r,
+      enabled: source.enabled,
+      morning_enabled: source.morning_enabled,
+      afternoon_enabled: source.afternoon_enabled,
+      entry_time: source.entry_time,
+      break_start_time: source.break_start_time,
+      break_end_time: source.break_end_time,
+      exit_time: source.exit_time,
+      tolerance_late_minutes: source.tolerance_late_minutes,
+      tolerance_early_minutes: source.tolerance_early_minutes,
+      notify_employee_late: source.notify_employee_late,
+      notify_employee_missing: source.notify_employee_missing,
+      notify_employee_overtime: source.notify_employee_overtime,
+      notify_company: source.notify_company
+    })));
+  }
+
   return (
     <div>
       <div className="card">
         <h2>Carga horária do funcionário</h2>
-        <p className="helptext">Configure de segunda a domingo. Entrada, início/fim de pausa e saída serão usados como referência para os cálculos de jornada.</p>
+        <p className="helptext">
+          Cada dia pode ser ativado ou desativado. A manhã e a tarde também têm ativação própria.
+          Período desativado não entra no cálculo da jornada e não gera cobrança de horário.
+        </p>
         <div className="field" style={{ maxWidth: 480 }}>
           <label>Funcionário</label>
           <select value={employeeId} onChange={e => setEmployeeId(e.target.value)}>
@@ -755,18 +918,45 @@ function Schedules({ companyId }: { companyId: string }) {
           </select>
         </div>
       </div>
+
       {employeeId && <div className="card">
+        <div style={{ display:'flex', justifyContent:'space-between', gap:10, alignItems:'center', marginBottom:10, flexWrap:'wrap' }}>
+          <b>Escala de segunda a domingo</b>
+          <button className="btn light" type="button" onClick={() => copyToAll(rows.find(r => r.weekday === 1) || rows[0])}>Copiar segunda para todos</button>
+        </div>
         <div style={{ overflowX:'auto' }}>
-          <table style={{ minWidth: 1050 }}>
-            <thead><tr><th>Dia</th><th>Trabalha</th><th>Entrada</th><th>Início pausa</th><th>Fim pausa</th><th>Saída</th><th>Tol. entrada (min)</th><th>Tol. saída (min)</th><th>Alertas</th></tr></thead>
+          <table style={{ minWidth: 1160 }}>
+            <thead>
+              <tr>
+                <th>Dia</th><th>Dia ativo</th><th>Manhã</th><th>Entrada</th><th>Início pausa</th>
+                <th>Tarde</th><th>Retorno</th><th>Saída</th><th>Tol. entrada</th><th>Tol. saída</th><th>Alertas</th>
+              </tr>
+            </thead>
             <tbody>
               {rows.map(r => <tr key={r.weekday}>
                 <td><b>{days.find(d => d[0] === r.weekday)?.[1]}</b></td>
-                <td><input type="checkbox" checked={!!r.enabled} onChange={e => patchRow(r.weekday,{enabled:e.target.checked})}/></td>
-                <td><input type="time" value={r.entry_time || ''} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{entry_time:e.target.value})}/></td>
-                <td><input type="time" value={r.break_start_time || ''} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{break_start_time:e.target.value})}/></td>
-                <td><input type="time" value={r.break_end_time || ''} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{break_end_time:e.target.value})}/></td>
-                <td><input type="time" value={r.exit_time || ''} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{exit_time:e.target.value})}/></td>
+                <td>
+                  <label className="helptext">
+                    <input type="checkbox" checked={!!r.enabled} onChange={e=>patchRow(r.weekday,{enabled:e.target.checked})}/>
+                    {r.enabled ? ' Ativo' : ' Inativo'}
+                  </label>
+                </td>
+                <td>
+                  <label className="helptext">
+                    <input type="checkbox" checked={r.morning_enabled !== false} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{morning_enabled:e.target.checked})}/>
+                    {r.morning_enabled !== false ? ' Ativa' : ' Inativa'}
+                  </label>
+                </td>
+                <td><input type="time" value={r.entry_time || ''} disabled={!r.enabled || r.morning_enabled === false} onChange={e=>patchRow(r.weekday,{entry_time:e.target.value})}/></td>
+                <td><input type="time" value={r.break_start_time || ''} disabled={!r.enabled || r.afternoon_enabled !== true} onChange={e=>patchRow(r.weekday,{break_start_time:e.target.value})}/></td>
+                <td>
+                  <label className="helptext">
+                    <input type="checkbox" checked={r.afternoon_enabled === true} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{afternoon_enabled:e.target.checked})}/>
+                    {r.afternoon_enabled === true ? ' Ativa' : ' Inativa'}
+                  </label>
+                </td>
+                <td><input type="time" value={r.break_end_time || ''} disabled={!r.enabled || r.afternoon_enabled !== true} onChange={e=>patchRow(r.weekday,{break_end_time:e.target.value})}/></td>
+                <td><input type="time" value={r.exit_time || ''} disabled={!r.enabled || r.afternoon_enabled !== true} onChange={e=>patchRow(r.weekday,{exit_time:e.target.value})}/></td>
                 <td><input type="number" min="0" max="120" style={{width:82}} value={r.tolerance_late_minutes ?? 0} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{tolerance_late_minutes:Number(e.target.value)})}/></td>
                 <td><input type="number" min="0" max="120" style={{width:82}} value={r.tolerance_early_minutes ?? 0} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{tolerance_early_minutes:Number(e.target.value)})}/></td>
                 <td>
@@ -781,12 +971,13 @@ function Schedules({ companyId }: { companyId: string }) {
         </div>
         <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginTop:12}}>
           <button className="btn green" disabled={saving} onClick={save}>{saving ? 'Salvando...' : 'Salvar jornada'}</button>
-          <span className="helptext">Exemplo: 08:00–12:00 / 14:00–18:00.</span>
+          <span className="helptext">Exemplo: segunda a sexta 08:00–12:00 / 14:00–18:00; sábado somente 08:00–12:00, deixando a tarde inativa.</span>
         </div>
       </div>}
     </div>
   );
 }
+
 
 /* ---------------------------- Company ---------------------------- */
 function CompanySettings({ companyId, role }: { companyId: string; role: string }) {
