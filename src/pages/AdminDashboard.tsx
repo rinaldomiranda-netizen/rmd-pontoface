@@ -271,44 +271,66 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
     if (!captured || !canvasRef.current) return;
     setBusy(true);
     setStatus('Analisando o rosto na foto...');
+
     try {
       const detection = await Promise.race([
         detectFace(canvasRef.current),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('FACE_ANALYSIS_TIMEOUT')), 15000))
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('FACE_ANALYSIS_TIMEOUT')), 15000)
+        )
       ]);
+
       if (!detection) throw new Error('FACE_NOT_FOUND');
       const descriptor = Array.from(detection.descriptor);
 
       setStatus('Salvando cadastro facial...');
-      const { data: sessionData } = await supabase.auth.getSession();
-      const authUserId = sessionData.session?.user?.id || null;
-      if (!authUserId) {
-        setStatus('Sua sessão expirou. Entre novamente no painel da empresa.');
+
+      // Toda a conclusão fica no servidor: a foto capturada é enviada junto
+      // com o descritor e o servidor grava Storage + facial_profiles.
+      const enrollPromise = supabase.functions.invoke('complete-face-enrollment', {
+        body: {
+          company_id: companyId,
+          employee_id: employeeId,
+          descriptor,
+          photo_data_url: captured
+        }
+      });
+
+      const enrollResult = await Promise.race([
+        enrollPromise,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('ENROLL_TIMEOUT')), 30000)
+        )
+      ]);
+
+      const { data, error: enrollError } = enrollResult as {
+        data: { ok?: boolean; error?: string } | null;
+        error: { message?: string } | null;
+      };
+
+      if (enrollError) {
+        console.error('complete-face-enrollment error', enrollError);
+        const message = enrollError.message || '';
+        if (message.includes('forbidden')) {
+          setStatus('Você não tem permissão para cadastrar o rosto.');
+        } else if (message.includes('employee_not_found_or_inactive')) {
+          setStatus('Funcionário não encontrado ou inativo.');
+        } else if (message.includes('invalid_descriptor')) {
+          setStatus('O rosto não pôde ser processado. Tire outra foto com boa iluminação.');
+        } else if (message.includes('invalid_photo')) {
+          setStatus('A foto não pôde ser enviada. Tire outra foto.');
+        } else if (message.includes('image_upload_failed')) {
+          setStatus('Não foi possível salvar a foto no sistema.');
+        } else if (message.includes('ENROLL_TIMEOUT')) {
+          setStatus('A confirmação demorou mais que o esperado. Tente novamente.');
+        } else {
+          setStatus(message || 'Não foi possível concluir o cadastro facial.');
+        }
         return;
       }
 
-      const { data: savedProfile, error: saveError } = await supabase
-        .from('facial_profiles')
-        .upsert({
-          employee_id: employeeId,
-          reference_image_path: path,
-          embedding_version: 'face-api-128-v1',
-          enrolled_at: new Date().toISOString(),
-          enrolled_by: authUserId,
-          active: true,
-          enrollment_status: 'enrolled',
-          descriptor
-        }, { onConflict: 'employee_id' })
-        .select('id,employee_id,enrollment_status')
-        .single();
-
-      if (saveError || !savedProfile) {
-        console.error('facial_profiles upsert error', saveError);
-        setStatus(
-          saveError?.message
-            ? `Não foi possível salvar o cadastro facial: ${saveError.message}`
-            : 'Não foi possível salvar o cadastro facial.'
-        );
+      if (!data?.ok) {
+        setStatus(friendlyError(data?.error));
         return;
       }
 
@@ -318,12 +340,10 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
       const code = error instanceof Error ? error.message : '';
       if (code === 'FACE_ANALYSIS_TIMEOUT') {
         setStatus('Análise facial demorou mais que o esperado. Tire outra foto e tente novamente.');
-      } else if (code === 'FACE_NOT_FOUND' || code === 'IMAGE_READ_FAILED') {
+      } else if (code === 'FACE_NOT_FOUND') {
         setStatus('Não foi possível analisar o rosto da foto. Tente novamente com boa iluminação e olhando diretamente para a câmera.');
-      } else if (code === 'IMAGE_UPLOAD_TIMEOUT') {
-        setStatus('O envio da foto demorou mais que o esperado. Tente novamente.');
-      } else if (code.startsWith('IMAGE_UPLOAD_FAILED:')) {
-        setStatus(`Não foi possível enviar a foto: ${error instanceof Error ? error.message.replace('IMAGE_UPLOAD_FAILED: ', '') : 'erro desconhecido.'}`);
+      } else if (code === 'ENROLL_TIMEOUT') {
+        setStatus('A confirmação demorou mais que o esperado. Tente novamente.');
       } else {
         setStatus('Não foi possível concluir o cadastro facial. Tente novamente.');
       }
