@@ -281,6 +281,9 @@ function EmployeePunch() {
   const [pending, setPending] = React.useState<Punch[]>([]);
   const [selectedPunch, setSelectedPunch] = React.useState<Punch | null>(null);
   const [documentDigits, setDocumentDigits] = React.useState('');
+  const [dashboard, setDashboard] = React.useState<any>(null);
+  const [activeAlert, setActiveAlert] = React.useState<any>(null);
+  const seenAlertIdsRef = React.useRef<Set<string>>(new Set());
   const [labels, setLabels] = React.useState({ name: 'RMD PontoFace', person_label: 'Funcionário', entry_label: 'Bater entrada', exit_label: 'Bater saída', exit_enabled: true });
   const pwa = usePwaInstall(`${location.pathname}${location.search}`);
 
@@ -333,13 +336,39 @@ function EmployeePunch() {
 
     return () => { cancelled = true; };
   }, [companyId, employeeId, token]);
+  async function refreshEmployeeDashboard() {
+    if (!token || !employeeId || !companyId || !navigator.onLine) return;
+    try {
+      const response = await fetch(FUNCTIONS + '/get-employee-dashboard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-employee-access-token': token },
+        body: JSON.stringify({ company_id: companyId, employee_id: employeeId })
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data) return;
+      setDashboard(data);
+      const alerts = Array.isArray(data.alerts) ? data.alerts : [];
+      const newest = alerts.find((a: any) => !seenAlertIdsRef.current.has(a.id));
+      if (newest) {
+        seenAlertIdsRef.current.add(newest.id);
+        setActiveAlert(newest);
+        try { navigator.vibrate?.([250, 120, 250]); } catch {}
+      }
+    } catch {}
+  }
+
   React.useEffect(() => {
-    const on = () => { setOnline(true); refreshQueue(); };
+    const on = () => { setOnline(true); refreshQueue(); refreshEmployeeDashboard(); };
     const off = () => setOnline(false);
     addEventListener('online', on); addEventListener('offline', off);
     refreshQueue();
-    return () => { removeEventListener('online', on); removeEventListener('offline', off); };
-  }, []);
+    refreshEmployeeDashboard();
+    const timer = window.setInterval(refreshEmployeeDashboard, 30000);
+    return () => {
+      removeEventListener('online', on); removeEventListener('offline', off);
+      window.clearInterval(timer);
+    };
+  }, [companyId, employeeId, token]);
 
   async function refreshQueue() { setPending(await queueAll()); }
 
@@ -439,6 +468,24 @@ function EmployeePunch() {
       <div className="identity"><div className="avatar">👤</div><div><small>{labels.person_label}</small><h1>{employeeName}</h1></div></div>
       <div className="clock">{new Date().toLocaleTimeString('pt-BR')}</div>
       <div className="status">{message}</div>
+      {activeAlert && (
+        <div className="fallback" style={{ marginBottom: 14, border: '2px solid #e1a33a', background: '#fff8df' }}>
+          <b>Atenção ao horário</b>
+          <div style={{ marginTop: 4 }}>{activeAlert.message}</div>
+          {activeAlert.minutes_delta != null && <b>{Number(activeAlert.minutes_delta) > 0 ? '+' : ''}{Math.round(Number(activeAlert.minutes_delta))} min</b>}
+          <button className="link" onClick={() => setActiveAlert(null)}>Entendi</button>
+        </div>
+      )}
+      {dashboard?.today?.schedule && (
+        <div className="fallback" style={{ marginBottom: 14 }}>
+          <b>Resumo de hoje</b>
+          <div style={{ marginTop: 4 }}>Jornada: {dashboard.today.schedule.entry_time?.slice(0,5)} às {dashboard.today.schedule.exit_time?.slice(0,5)}</div>
+          <div style={{ marginTop: 3 }}>Trabalhado: {dashboard.today.worked ?? 0} min</div>
+          <div style={{ marginTop: 3, color: Number(dashboard.today.balance) < 0 ? 'var(--danger)' : 'var(--brand-2)', fontWeight: 800 }}>
+            Saldo: {dashboard.today.balance == null ? '—' : (Number(dashboard.today.balance) > 0 ? '+' : '') + Math.round(Number(dashboard.today.balance)) + ' min'}
+          </div>
+        </div>
+      )}
       <div className="actions">
         <button className="primary" onClick={() => startPunch('entry')}>✓ {labels.entry_label}</button>
         {labels.exit_enabled && <button className="secondary" onClick={() => startPunch('exit')}>⇥ {labels.exit_label}</button>}
