@@ -73,83 +73,139 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
   const rafRef = React.useRef<number | null>(null);
   const phaseRef = React.useRef<'loading' | 'camera' | 'centering' | 'blink' | 'captured'>('loading');
   const streamRef = React.useRef<MediaStream | null>(null);
-  const earHistory = React.useRef<number[]>([]);
   const centeredFrames = React.useRef(0);
-  const blinkDetected = React.useRef(false);
+  const blinkClosedRef = React.useRef(false);
+  const openEarSumRef = React.useRef(0);
+  const openEarCountRef = React.useRef(0);
+  const openEarRef = React.useRef(0.30);
   const startedAtRef = React.useRef(0);
   const doneRef = React.useRef(false);
+  const lastDetectionAtRef = React.useRef(0);
 
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         phaseRef.current = 'camera';
-        setPhase('camera'); setHint('Ligando a câmera...');
-        // Pede a câmera primeiro (mantém o gesto de toque do usuário válido)
-        // e carrega o motor de reconhecimento ao mesmo tempo, não depois.
+        setPhase('camera');
+        setHint('Ligando a câmera...');
+
         const modelsPromise = loadFaceModels();
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 480, height: 480 } });
-        if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: 480, height: 480 }
+        });
+
+        if (cancelled) {
+          stream.getTracks().forEach(t => t.stop());
+          return;
+        }
+
         streamRef.current = stream;
-        if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+
         setHint('Carregando o motor de reconhecimento...');
         await modelsPromise;
+
         if (cancelled) return;
+
         phaseRef.current = 'centering';
-        setPhase('centering'); setHint('Centralize seu rosto na câmera.');
+        setPhase('centering');
+        setHint('Centralize seu rosto na câmera.');
         startedAtRef.current = Date.now();
         loop();
-      } catch (e) {
+      } catch {
         onCancel('Não foi possível acessar a câmera. Verifique as permissões do navegador.');
       }
     })();
-    return () => { cancelled = true; if (rafRef.current) cancelAnimationFrame(rafRef.current); streamRef.current?.getTracks().forEach(t => t.stop()); };
+
+    return () => {
+      cancelled = true;
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      streamRef.current?.getTracks().forEach(t => t.stop());
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function loop() {
     rafRef.current = requestAnimationFrame(async () => {
       if (doneRef.current) return;
-      const video = videoRef.current;
-      if (video && video.readyState >= 2) {
-        const result = await detectFace(video);
-        if (result) {
-          centeredFrames.current += 1;
-          const ear = averageEAR(result.landmarks);
-          earHistory.current.push(ear);
-          if (earHistory.current.length > 12) earHistory.current.shift();
 
-          if (centeredFrames.current > 8 && phaseRef.current === 'centering') {
-            phaseRef.current = 'blink';
-            setPhase('blink'); setHint('Agora pisque os olhos devagar.');
-          }
-          if (phaseRef.current === 'blink') {
-            const recentMin = Math.min(...earHistory.current);
-            const recentMax = Math.max(...earHistory.current);
-            if (recentMin < 0.22 && recentMax > 0.28 && !blinkDetected.current) {
-              blinkDetected.current = true;
-              doneRef.current = true;
-              phaseRef.current = 'captured';
-              setPhase('captured'); setHint('Rosto confirmado!');
-              const descriptor = Array.from(result.descriptor);
-              setTimeout(() => onDone({ descriptor }), 400);
-              return;
+      const video = videoRef.current;
+
+      try {
+        if (video && video.readyState >= 2) {
+          const result = await detectFace(video);
+
+          if (result) {
+            lastDetectionAtRef.current = Date.now();
+            centeredFrames.current += 1;
+
+            const ear = averageEAR(result.landmarks);
+
+            // Aprende automaticamente a abertura normal dos olhos dessa câmera.
+            // Isso evita depender de um valor fixo que varia com aparelho,
+            // distância do rosto, iluminação e formato dos olhos.
+            if (phaseRef.current === 'centering' && Number.isFinite(ear) && ear > 0.16) {
+              openEarSumRef.current += ear;
+              openEarCountRef.current += 1;
+              if (openEarCountRef.current >= 5) {
+                openEarRef.current = openEarSumRef.current / openEarCountRef.current;
+              }
             }
+
+            if (centeredFrames.current >= 6 && phaseRef.current === 'centering') {
+              phaseRef.current = 'blink';
+              blinkClosedRef.current = false;
+              setPhase('blink');
+              setHint('Agora pisque os olhos devagar e abra novamente.');
+            }
+
+            if (phaseRef.current === 'blink' && Number.isFinite(ear) && ear > 0.05) {
+              const baseline = Math.max(0.18, openEarRef.current);
+              const closeThreshold = Math.max(0.14, baseline * 0.72);
+              const reopenThreshold = Math.max(0.20, baseline * 0.86);
+
+              // Primeiro detecta fechamento; depois exige abertura novamente.
+              if (!blinkClosedRef.current && ear < closeThreshold) {
+                blinkClosedRef.current = true;
+                setHint('Olhos fechados detectados. Abra os olhos.');
+              } else if (blinkClosedRef.current && ear > reopenThreshold) {
+                doneRef.current = true;
+                phaseRef.current = 'captured';
+                setPhase('captured');
+                setHint('Rosto confirmado!');
+
+                const descriptor = Array.from(result.descriptor);
+                setTimeout(() => onDone({ descriptor }), 250);
+                return;
+              }
+            }
+          } else if (Date.now() - lastDetectionAtRef.current > 1200) {
+            centeredFrames.current = Math.max(0, centeredFrames.current - 2);
+
+            if (phaseRef.current !== 'centering') {
+              phaseRef.current = 'centering';
+              setPhase('centering');
+            }
+
+            setHint('Não estou vendo seu rosto. Centralize na câmera.');
           }
-        } else {
-          centeredFrames.current = Math.max(0, centeredFrames.current - 2);
-          if (phaseRef.current !== 'centering') {
-            phaseRef.current = 'centering';
-            setPhase('centering');
-          }
-          setHint('Não estou vendo seu rosto. Centralize na câmera.');
         }
+      } catch (error) {
+        console.debug('liveness frame error', error);
       }
-      if (Date.now() - startedAtRef.current > 60000 && !doneRef.current) {
+
+      // 90 segundos dão tempo para o funcionário posicionar o rosto e piscar
+      // sem transformar uma demora momentânea do aparelho em falha.
+      if (Date.now() - startedAtRef.current > 90000 && !doneRef.current) {
         doneRef.current = true;
-        onCancel('Não conseguimos confirmar em até 60 segundos. Centralize o rosto, mantenha os olhos visíveis e pisque devagar.');
+        onCancel('Não conseguimos confirmar em até 90 segundos. Centralize o rosto e pisque uma vez, fechando e abrindo os olhos.');
         return;
       }
+
       loop();
     });
   }
@@ -161,12 +217,13 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
         <div style={{ width: 260, height: 260, borderRadius: '50%', overflow: 'hidden', border: '4px solid #2f9e6e', background: '#000' }}>
           <video ref={videoRef} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
         </div>
-        <p style={{ color: '#fff', fontSize: 15, textAlign: 'center', maxWidth: 280 }}>{hint}</p>
+        <p style={{ color: '#fff', fontSize: 15, textAlign: 'center', maxWidth: 300 }}>{hint}</p>
         <button className="link" style={{ color: '#bbb' }} onClick={() => onCancel('Verificação cancelada.')}>Cancelar</button>
       </div>
     </div>
   );
 }
+
 
 /* ---------------- tela principal do funcionário ---------------- */
 function EmployeePunch() {
