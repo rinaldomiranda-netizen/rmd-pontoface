@@ -32,6 +32,16 @@ jobs:
           if old in s:
               s = s.replace(old, new, 1)
 
+          # Professional company identity in the header. The company name is
+          # already loaded from companies.name and is editable in Empresa.
+          old_header = '<h1>{navLabel(section)}</h1>'
+          new_header = '''<div className="company-header">
+              <div className="company-header-name">{labels.name || 'Minha Empresa'}</div>
+              <div className="company-header-section">{navLabel(section)}</div>
+            </div>'''
+          if old_header in s and 'className="company-header"' not in s:
+              s = s.replace(old_header, new_header, 1)
+
           # Never blank the KPI dashboard while data refreshes.
           s = s.replace("  if (loading) return <p className=\"empty-row\">Carregando...</p>;\n  return (", "  return (", 1)
           p.write_text(s, encoding='utf-8')
@@ -39,7 +49,7 @@ jobs:
           css = Path('src/styles.css')
           c = css.read_text(encoding='utf-8')
           if '.mobile-menu-trigger' not in c:
-              c += "\n@media (max-width: 760px){\n  .mobile-nav{display:block;position:relative;margin-bottom:14px;}\n  .mobile-menu-trigger{display:inline-flex;align-items:center;gap:9px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:11px 15px;color:var(--text);font-size:14px;font-weight:800;box-shadow:0 2px 8px rgba(16,47,36,.06);}\n  .mobile-menu-popover{display:flex;flex-direction:column;gap:5px;position:absolute;left:0;right:0;top:calc(100% + 7px);z-index:20;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:8px;box-shadow:0 12px 30px rgba(16,47,36,.16);}\n  .mobile-menu-popover button{width:100%;text-align:left;background:transparent;border:0;border-radius:9px;padding:12px 13px;color:var(--text);font-size:14px;font-weight:700;}\n  .mobile-menu-popover button.active{background:var(--brand-2);color:#fff;}\n}\n"
+              c += "\n@media (max-width: 760px){\n  .mobile-nav{display:block;position:relative;margin-bottom:14px;overflow:visible;}\n  .mobile-menu-trigger{display:inline-flex;align-items:center;justify-content:center;width:50px;height:46px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:0;color:var(--text);font-size:0;font-weight:800;box-shadow:0 2px 8px rgba(16,47,36,.06);}\n  .mobile-menu-trigger::before{content:'⋮';font-size:30px;line-height:1;}\n  .mobile-menu-popover{display:flex;flex-direction:column;gap:5px;position:absolute;left:0;right:auto;top:calc(100% + 7px);width:min(340px,calc(100vw - 28px));max-height:min(70vh,620px);overflow-y:auto;overflow-x:hidden;z-index:9999;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:8px;box-shadow:0 16px 38px rgba(16,47,36,.20);}\n  .mobile-menu-popover button{width:100%;min-height:46px;flex:0 0 auto;text-align:left;background:transparent;border:0;border-radius:9px;padding:12px 13px;color:var(--text);font-size:14px;font-weight:700;}\n  .mobile-menu-popover button.active{background:var(--brand-2);color:#fff;}\n  .admin-main{overflow:visible;}\n}\n"
           css.write_text(c, encoding='utf-8')
       - name: Commit patch
         shell: bash
@@ -50,6 +60,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "fix: compact mobile menu and remove dashboard loading flicker"
+            git commit -m "fix: company dashboard identity header and stable menu"
             git push
           fi
