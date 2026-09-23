@@ -10,7 +10,7 @@ function useToast() { return React.useContext(ToastContext); }
 
 type Props = { companyId: string; role: string; onLogout: () => void };
 
-type Section = 'overview' | 'employees' | 'attendance' | 'locations' | 'access' | 'import' | 'schedule' | 'company' | 'audit';
+type Section = 'overview' | 'employees' | 'attendance' | 'locations' | 'access' | 'import' | 'company' | 'audit';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'overview', label: 'Dashboard' },
@@ -19,7 +19,6 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: 'locations', label: 'Localizações' },
   { id: 'access', label: 'Acessos' },
   { id: 'import', label: 'Importar' },
-  { id: 'schedule', label: 'Jornada' },
   { id: 'company', label: 'Empresa' },
   { id: 'audit', label: 'Auditoria' },
 ];
@@ -29,7 +28,6 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
   const [labels, setLabels] = React.useState({ person_label: 'Funcionário', people_label: 'Funcionários', entry_label: 'Bater entrada', exit_label: 'Bater saída', exit_enabled: true, name: 'RMD PontoFace' });
   const pwa = usePwaInstall('/admin');
   const [toastMsg, setToastMsg] = React.useState<string | null>(null);
-  const [companyAlerts, setCompanyAlerts] = React.useState<any[]>([]);
   const toastTimer = React.useRef<number | null>(null);
   function showToast(msg: string) {
     setToastMsg(msg);
@@ -40,18 +38,6 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
   React.useEffect(() => {
     supabase.from('companies').select('name,person_label,people_label,entry_label,exit_label,exit_enabled').eq('id', companyId).maybeSingle()
       .then(({ data }) => { if (data) setLabels(data as any); });
-  }, [companyId]);
-
-  React.useEffect(() => {
-    async function refreshCompanyAlerts() {
-      try {
-        const { data, error } = await supabase.functions.invoke('check-attendance-alerts', { body: { company_id: companyId } });
-        if (!error && data?.ok) setCompanyAlerts(Array.isArray(data.alerts) ? data.alerts : []);
-      } catch {}
-    }
-    refreshCompanyAlerts();
-    const timer = window.setInterval(refreshCompanyAlerts, 30000);
-    return () => window.clearInterval(timer);
   }, [companyId]);
 
   const navLabel = (s: Section) => s === 'employees' ? labels.people_label : SECTIONS.find(x => x.id === s)?.label;
@@ -81,20 +67,6 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
             <button className="btn light" onClick={onLogout}>Sair</button>
           </div>
           {pwa.showIosHint && <div className="fallback"><p style={{ margin: 0 }}>No iPhone ou iPad: toque no ícone de <b>Compartilhar</b> e depois em <b>"Adicionar à Tela de Início"</b>.</p><button className="link" onClick={() => pwa.setShowIosHint(false)}>Entendi</button></div>}
-          {companyAlerts.length > 0 && (
-            <div className="card" style={{ border: '1px solid #e2b65c', background: '#fff8df' }}>
-              <h2 style={{ marginBottom: 8 }}>Alertas de jornada</h2>
-              {companyAlerts.slice(0, 5).map((a: any) => (
-                <div key={a.id} style={{ padding: '9px 0', borderBottom: '1px solid #ead99c' }}>
-                  <b>{a.employees?.full_name || 'Funcionário'}</b>
-                  <div style={{ marginTop: 3 }}>{a.message}</div>
-                  {a.minutes_delta != null && <div className={Number(a.minutes_delta) < 0 ? 'tag danger' : 'tag warn'} style={{ marginTop: 4 }}>
-                    {Number(a.minutes_delta) > 0 ? '+' : ''}{Math.round(Number(a.minutes_delta))} min
-                  </div>}
-                </div>
-              ))}
-            </div>
-          )}
           {section === 'overview' ? <div className="mobile-nav">{nav}</div> : <div className="mobile-nav-back"><button className="btn light wide" onClick={() => setSection('overview')}>← Voltar ao menu</button></div>}
           {section === 'overview' && <Overview companyId={companyId} />}
           {section === 'employees' && <Employees companyId={companyId} role={role} labels={labels} />}
@@ -102,7 +74,6 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
           {section === 'locations' && <Locations companyId={companyId} />}
           {section === 'access' && <Access companyId={companyId} />}
           {section === 'import' && <BulkImport companyId={companyId} labels={labels} />}
-          {section === 'schedule' && <Schedules companyId={companyId} />}
           {section === 'company' && <CompanySettings companyId={companyId} role={role} />}
           {section === 'audit' && <Audit companyId={companyId} />}
         </main>
@@ -501,22 +472,18 @@ function Attendance({ companyId }: { companyId: string }) {
   async function load() {
     const start = new Date(date + 'T00:00:00'); const end = new Date(date + 'T23:59:59.999');
     const { data } = await supabase.from('attendance_records')
-      .select('id,punch_type,occurred_at,identification_method,location_accuracy_m,location_label,location_address,location_status,location_distance_m,liveness_confidence,face_match_confidence,offline,scheduled_minutes,worked_minutes,balance_minutes,schedule_status,employees(full_name)')
+      .select('id,punch_type,occurred_at,identification_method,latitude,longitude,location_accuracy_m,liveness_confidence,face_match_confidence,offline,employees(full_name)')
       .eq('company_id', companyId).gte('occurred_at', start.toISOString()).lte('occurred_at', end.toISOString())
       .order('occurred_at', { ascending: false });
     setRows(data || []);
   }
 
   function exportCsv() {
-    const header = 'Funcionario,Tipo,Horario,Metodo,Localizacao,Precisao(m),Saldo(min),Offline\n';
-    const body = rows.map((r: any) => [
-      r.employees?.full_name || '', r.punch_type, r.occurred_at, r.identification_method,
-      (r.location_label || r.location_address || '').replaceAll(',', ' '),
-      r.location_accuracy_m ?? '', r.balance_minutes ?? '', r.offline ? 'sim' : 'nao'
-    ].join(',')).join('\n');
+    const header = 'Funcionario,Tipo,Horario,Metodo,Latitude,Longitude,Precisao(m),Offline\n';
+    const body = rows.map((r: any) => [r.employees?.full_name || '', r.punch_type, r.occurred_at, r.identification_method, r.latitude ?? '', r.longitude ?? '', r.location_accuracy_m ?? '', r.offline ? 'sim' : 'nao'].join(',')).join('\n');
     const blob = new Blob([header + body], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'ponto-' + date + '.csv'; a.click();
+    const a = document.createElement('a'); a.href = url; a.download = `ponto-${date}.csv`; a.click();
     URL.revokeObjectURL(url);
   }
 
@@ -528,25 +495,19 @@ function Attendance({ companyId }: { companyId: string }) {
       </div>
       <div className="card">
         <table>
-          <thead><tr><th>Funcionário</th><th>Tipo</th><th>Horário</th><th>Método</th><th>Localização</th><th>Precisão</th><th>Saldo</th></tr></thead>
+          <thead><tr><th>Funcionário</th><th>Tipo</th><th>Horário</th><th>Método</th><th>Localização</th><th>Biometria</th></tr></thead>
           <tbody>
             {rows.map((r: any) => (
               <tr key={r.id}>
-                <td>{r.employees?.full_name || r.employee_name_snapshot || '-'}</td>
+                <td>{r.employees?.full_name || '-'}</td>
                 <td><span className="tag">{r.punch_type === 'entry' ? 'Entrada' : 'Saída'}</span></td>
                 <td>{new Date(r.occurred_at).toLocaleTimeString('pt-BR')}</td>
                 <td>{r.identification_method}{r.offline ? ' (offline)' : ''}</td>
-                <td>
-                  {r.location_label || r.location_address || 'Local não identificado'}
-                  {(r.location_address || r.location_label) && <div><a href={'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(r.location_address || r.location_label)} target="_blank" rel="noreferrer" className="helptext">Abrir no mapa</a></div>}
-                  {r.location_status === 'inside' && <div className="helptext">Dentro do local autorizado{r.location_distance_m != null ? ' • ' + Math.round(r.location_distance_m) + 'm' : ''}</div>}
-                  {r.location_status === 'outside' && <div className="helptext" style={{ color: 'var(--danger)' }}>Fora do raio autorizado{r.location_distance_m != null ? ' • ' + Math.round(r.location_distance_m) + 'm' : ''}</div>}
-                </td>
-                <td>{r.location_accuracy_m != null ? '±' + Math.round(r.location_accuracy_m) + 'm' : '—'}</td>
-                <td style={{ color: Number(r.balance_minutes) < 0 ? 'var(--danger)' : 'var(--brand-2)', fontWeight: 800 }}>{r.balance_minutes == null ? '—' : (Number(r.balance_minutes) > 0 ? '+' : '') + Math.round(r.balance_minutes) + ' min'}</td>
+                <td>{r.latitude != null ? `${r.latitude.toFixed(5)}, ${r.longitude.toFixed(5)} (±${Math.round(r.location_accuracy_m || 0)}m)` : '—'}</td>
+                <td>{r.face_match_confidence != null ? `${Number(r.face_match_confidence).toFixed(1)}%` : '—'}</td>
               </tr>
             ))}
-            {!rows.length && <tr><td colSpan={7} className="empty-row">Nenhum registro nesta data.</td></tr>}
+            {!rows.length && <tr><td colSpan={6} className="empty-row">Nenhum registro nesta data.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -555,25 +516,22 @@ function Attendance({ companyId }: { companyId: string }) {
 }
 
 /* ---------------------------- Locations ---------------------------- */
-/* ---------------------------- Locations ---------------------------- */
 function Locations({ companyId }: { companyId: string }) {
   const showToast = useToast();
   const [list, setList] = React.useState<any[]>([]);
-  const [form, setForm] = React.useState({ name: '', address: '', radius_m: '150', latitude: null as number | null, longitude: null as number | null });
+  const [form, setForm] = React.useState({ name: '', address: '', radius_m: '150' });
 
   React.useEffect(() => { load(); }, [companyId]);
   async function load() {
-    const { data } = await supabase.from('work_locations').select('id,name,address,radius_m,active,latitude,longitude').eq('company_id', companyId).order('name');
+    const { data } = await supabase.from('work_locations').select('id,name,address,radius_m,active').eq('company_id', companyId).order('name');
     setList(data || []);
   }
   async function add(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name.trim()) return;
-    const res = await callFunction('admin-mutate', { table: 'work_locations', action: 'insert', company_id: companyId, payload: { name: form.name.trim(), address: form.address.trim() || null, radius_m: Number(form.radius_m) || null, latitude: form.latitude, longitude: form.longitude } });
+    const res = await callFunction('admin-mutate', { table: 'work_locations', action: 'insert', company_id: companyId, payload: { name: form.name.trim(), address: form.address.trim() || null, radius_m: Number(form.radius_m) || null } });
     if (!res.ok) { alert(friendlyError((res.data as any)?.error)); return; }
-    setForm({ name: '', address: '', radius_m: '150', latitude: null, longitude: null });
-    showToast('Localização adicionada.');
-    load();
+    setForm({ name: '', address: '', radius_m: '150' }); showToast('Localização adicionada.'); load();
   }
   async function toggle(id: string, active: boolean) {
     const res = await callFunction('admin-mutate', { table: 'work_locations', action: 'update', company_id: companyId, id, payload: { active: !active } });
@@ -581,13 +539,20 @@ function Locations({ companyId }: { companyId: string }) {
     showToast(active ? 'Desativada.' : 'Ativada.');
     load();
   }
+
   async function deleteLocation(id: string, name: string) {
-    if (!window.confirm('Excluir permanentemente a localização "' + name + '"? Os registros de ponto existentes manterão o histórico.')) return;
-    const { data, error } = await supabase.functions.invoke('delete-company-item', { body: { company_id: companyId, table: 'work_locations', id } });
-    if (error || !data?.ok) { alert(error?.message || friendlyError(data?.error)); return; }
+    if (!window.confirm(`Excluir permanentemente a localização "${name}"? Os registros de ponto existentes manterão o histórico, mas deixarão de apontar para esta localização.`)) return;
+    const { data, error } = await supabase.functions.invoke('delete-company-item', {
+      body: { company_id: companyId, table: 'work_locations', id }
+    });
+    if (error || !data?.ok) {
+      alert(error?.message || friendlyError(data?.error));
+      return;
+    }
     showToast('Localização excluída.');
     load();
   }
+
   return (
     <div>
       <div className="card">
@@ -595,19 +560,8 @@ function Locations({ companyId }: { companyId: string }) {
         <form onSubmit={add}>
           <div className="row3">
             <div className="field"><label>Nome</label><input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Ex: Matriz" /></div>
-            <div className="field"><label>Endereço</label><input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder="Rua, número, bairro, cidade" /></div>
-            <div className="field"><label>Raio de autorização (m)</label><input value={form.radius_m} onChange={e => setForm({ ...form, radius_m: e.target.value })} /></div>
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <button type="button" className="btn light" onClick={() => {
-              if (!navigator.geolocation) { alert('Este aparelho não oferece localização.'); return; }
-              navigator.geolocation.getCurrentPosition(
-                p => setForm(f => ({ ...f, latitude: p.coords.latitude, longitude: p.coords.longitude, address: f.address || 'Local definido pelo GPS' })),
-                () => alert('Não foi possível obter a localização atual.'),
-                { enableHighAccuracy: true, maximumAge: 0, timeout: 12000 }
-              );
-            }}>Usar minha localização atual</button>
-            <span className="helptext">{form.latitude != null ? 'Localização GPS capturada com sucesso.' : 'Use o GPS para registrar o ponto exato da unidade.'}</span>
+            <div className="field"><label>Endereço</label><input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} /></div>
+            <div className="field"><label>Raio (m)</label><input value={form.radius_m} onChange={e => setForm({ ...form, radius_m: e.target.value })} /></div>
           </div>
           <button className="btn green" type="submit">Adicionar</button>
         </form>
@@ -618,7 +572,7 @@ function Locations({ companyId }: { companyId: string }) {
           <tbody>
             {list.map(l => (
               <tr key={l.id}>
-                <td>{l.name}</td><td>{l.address || '-'}</td><td>{l.radius_m ? l.radius_m + 'm' : '-'}</td>
+                <td>{l.name}</td><td>{l.address || '-'}</td><td>{l.radius_m ? `${l.radius_m}m` : '-'}</td>
                 <td><span className={`tag ${l.active ? '' : 'off'}`}>{l.active ? 'Ativa' : 'Inativa'}</span></td>
                 <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button className="btn light" onClick={() => toggle(l.id, l.active)}>{l.active ? 'Desativar' : 'Ativar'}</button>
@@ -634,7 +588,6 @@ function Locations({ companyId }: { companyId: string }) {
   );
 }
 
-/* ---------------------------- Access ---------------------------- */
 /* ---------------------------- Access ---------------------------- */
 function Access({ companyId }: { companyId: string }) {
   const showToast = useToast();
@@ -687,76 +640,6 @@ function Access({ companyId }: { companyId: string }) {
   );
 }
 
-/* ---------------------------- Weekly schedule ---------------------------- */
-function Schedules({ companyId }: { companyId: string }) {
-  const showToast = useToast();
-  const days = [
-    { weekday: 1, label: 'Segunda-feira' }, { weekday: 2, label: 'Terça-feira' }, { weekday: 3, label: 'Quarta-feira' },
-    { weekday: 4, label: 'Quinta-feira' }, { weekday: 5, label: 'Sexta-feira' }, { weekday: 6, label: 'Sábado' }, { weekday: 7, label: 'Domingo' },
-  ];
-  const [employees, setEmployees] = React.useState<any[]>([]);
-  const [employeeId, setEmployeeId] = React.useState('');
-  const [rows, setRows] = React.useState<any[]>([]);
-  const [saving, setSaving] = React.useState(false);
-  React.useEffect(() => {
-    supabase.from('employees').select('id,full_name').eq('company_id', companyId).eq('active', true).order('full_name')
-      .then(({ data }) => { const list = data || []; setEmployees(list); if (!employeeId && list[0]) setEmployeeId(list[0].id); });
-  }, [companyId]);
-  React.useEffect(() => {
-    if (!employeeId) return;
-    supabase.from('employee_work_schedules').select('*').eq('company_id', companyId).eq('employee_id', employeeId).order('weekday')
-      .then(({ data }) => {
-        const existing = data || [];
-        setRows(days.map(d => {
-          const x = existing.find((r: any) => r.weekday === d.weekday);
-          return x || { weekday: d.weekday, enabled: d.weekday <= 5, entry_time: '08:00', break_start_time: '12:00', break_end_time: '14:00', exit_time: '18:00', tolerance_late_minutes: 0, tolerance_early_minutes: 0, notify_employee_late: true, notify_employee_missing: true, notify_employee_overtime: true, notify_company: true };
-        }));
-      });
-  }, [companyId, employeeId]);
-  function updateRow(weekday: number, patch: any) { setRows(list => list.map(r => r.weekday === weekday ? { ...r, ...patch } : r)); }
-  async function save() {
-    if (!employeeId) return;
-    setSaving(true);
-    const res = await supabase.functions.invoke('save-employee-schedule', { body: { company_id: companyId, employee_id: employeeId, schedules: rows } });
-    setSaving(false);
-    if (res.error || !res.data?.ok) { alert(res.error?.message || res.data?.error || 'Não foi possível salvar a jornada.'); return; }
-    showToast('Jornada semanal salva.');
-  }
-  return (
-    <div>
-      <div className="card">
-        <h2>Jornada semanal</h2>
-        <div className="field" style={{ maxWidth: 420 }}>
-          <label>Funcionário</label>
-          <select value={employeeId} onChange={e => setEmployeeId(e.target.value)}>
-            {!employees.length && <option value="">Nenhum funcionário cadastrado</option>}
-            {employees.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
-          </select>
-        </div>
-        <div className="helptext">A jornada se repete toda semana, de segunda a domingo. Dias desativados são folga e não geram falta.</div>
-      </div>
-      {employeeId && <div className="card">
-        <table style={{ minWidth: 880 }}>
-          <thead><tr><th>Dia</th><th>Ativo</th><th>Entrada</th><th>Início intervalo</th><th>Fim intervalo</th><th>Saída</th><th>Tolerâncias</th><th>Alertas</th></tr></thead>
-          <tbody>
-            {rows.map(r => <tr key={r.weekday}>
-              <td>{days.find(d => d.weekday === r.weekday)?.label}</td>
-              <td><input type="checkbox" checked={!!r.enabled} onChange={e => updateRow(r.weekday,{enabled:e.target.checked})} /></td>
-              <td><input type="time" value={r.entry_time || ''} disabled={!r.enabled} onChange={e => updateRow(r.weekday,{entry_time:e.target.value})} /></td>
-              <td><input type="time" value={r.break_start_time || ''} disabled={!r.enabled} onChange={e => updateRow(r.weekday,{break_start_time:e.target.value})} /></td>
-              <td><input type="time" value={r.break_end_time || ''} disabled={!r.enabled} onChange={e => updateRow(r.weekday,{break_end_time:e.target.value})} /></td>
-              <td><input type="time" value={r.exit_time || ''} disabled={!r.enabled} onChange={e => updateRow(r.weekday,{exit_time:e.target.value})} /></td>
-              <td><div style={{ display:'flex', gap:6, alignItems:'center' }}><input type="number" min="0" max="120" style={{ width:70 }} value={r.tolerance_late_minutes ?? 0} disabled={!r.enabled} onChange={e=>updateRow(r.weekday,{tolerance_late_minutes:Number(e.target.value)})} /><span className="helptext">entrada</span></div><div style={{ display:'flex', gap:6, alignItems:'center', marginTop:4 }}><input type="number" min="0" max="120" style={{ width:70 }} value={r.tolerance_early_minutes ?? 0} disabled={!r.enabled} onChange={e=>updateRow(r.weekday,{tolerance_early_minutes:Number(e.target.value)})} /><span className="helptext">saída</span></div></td>
-              <td><label className="helptext"><input type="checkbox" checked={r.notify_employee_late !== false} onChange={e=>updateRow(r.weekday,{notify_employee_late:e.target.checked})} /> atraso</label><br/><label className="helptext"><input type="checkbox" checked={r.notify_employee_overtime !== false} onChange={e=>updateRow(r.weekday,{notify_employee_overtime:e.target.checked})} /> extra</label><br/><label className="helptext"><input type="checkbox" checked={r.notify_company !== false} onChange={e=>updateRow(r.weekday,{notify_company:e.target.checked})} /> empresa</label></td>
-            </tr>)}
-          </tbody>
-        </table>
-        <button className="btn green" disabled={saving} onClick={save}>{saving ? 'Salvando...' : 'Salvar jornada'}</button>
-      </div>}
-    </div>
-  );
-}
-
 /* ---------------------------- Company ---------------------------- */
 function CompanySettings({ companyId, role }: { companyId: string; role: string }) {
   const showToast = useToast();
@@ -775,13 +658,6 @@ function CompanySettings({ companyId, role }: { companyId: string; role: string 
       name: company.name, legal_name: company.legal_name, tax_id: company.tax_id, phone: company.phone,
       biometric_liveness_threshold: company.biometric_liveness_threshold, biometric_face_match_threshold: company.biometric_face_match_threshold,
       biometric_enabled: company.biometric_enabled,
-      location_verification_enabled: company.location_verification_enabled,
-      location_tolerance_m: company.location_tolerance_m,
-      employee_alerts_enabled: company.employee_alerts_enabled,
-      employee_late_alert_enabled: company.employee_late_alert_enabled,
-      employee_missing_alert_enabled: company.employee_missing_alert_enabled,
-      employee_overtime_alert_enabled: company.employee_overtime_alert_enabled,
-      company_alerts_enabled: company.company_alerts_enabled,
       person_label: company.person_label, people_label: company.people_label,
       entry_label: company.entry_label, exit_label: company.exit_label, exit_enabled: company.exit_enabled
     }});
@@ -812,14 +688,6 @@ function CompanySettings({ companyId, role }: { companyId: string; role: string 
           <button type="button" className={`switch ${company.exit_enabled ? 'on' : ''}`} disabled={!canEdit} onClick={() => setCompany({ ...company, exit_enabled: !company.exit_enabled })}></button>
           Usar botão de saída (desligue se for só marcar presença, sem saída)
         </label>
-        <h2 style={{ marginTop: 8 }}>Localização e alertas</h2>
-        <div className="field"><label>Tolerância de localização (m)</label><input type="number" min="0" max="1000" value={company.location_tolerance_m ?? 0} onChange={e => setCompany({ ...company, location_tolerance_m: Number(e.target.value) })} disabled={!canEdit} /></div>
-        <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13.5, marginBottom:8 }}><input type="checkbox" checked={company.location_verification_enabled !== false} onChange={e=>setCompany({ ...company, location_verification_enabled:e.target.checked })} disabled={!canEdit}/> Verificar local autorizado</label>
-        <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13.5, marginBottom:8 }}><input type="checkbox" checked={company.employee_alerts_enabled !== false} onChange={e=>setCompany({ ...company, employee_alerts_enabled:e.target.checked })} disabled={!canEdit}/> Alertas para o funcionário</label>
-        <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13.5, marginBottom:8 }}><input type="checkbox" checked={company.employee_late_alert_enabled !== false} onChange={e=>setCompany({ ...company, employee_late_alert_enabled:e.target.checked })} disabled={!canEdit}/> Alertas de atraso</label>
-        <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13.5, marginBottom:8 }}><input type="checkbox" checked={company.employee_missing_alert_enabled !== false} onChange={e=>setCompany({ ...company, employee_missing_alert_enabled:e.target.checked })} disabled={!canEdit}/> Alertas de falta de registro</label>
-        <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13.5, marginBottom:8 }}><input type="checkbox" checked={company.employee_overtime_alert_enabled !== false} onChange={e=>setCompany({ ...company, employee_overtime_alert_enabled:e.target.checked })} disabled={!canEdit}/> Alertas de hora extra</label>
-        <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13.5, marginBottom:14 }}><input type="checkbox" checked={company.company_alerts_enabled !== false} onChange={e=>setCompany({ ...company, company_alerts_enabled:e.target.checked })} disabled={!canEdit}/> Alertas para a empresa</label>
         <h2 style={{ marginTop: 8 }}>Biometria</h2>
         <div className="row2">
           <div className="field"><label>Limite de vivacidade (%)</label><input type="number" value={company.biometric_liveness_threshold} onChange={e => setCompany({ ...company, biometric_liveness_threshold: Number(e.target.value) })} disabled={!canEdit} /></div>
