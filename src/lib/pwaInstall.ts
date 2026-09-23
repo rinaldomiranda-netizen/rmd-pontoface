@@ -1,4 +1,4 @@
-import React from 'react';
+import * as React from 'react';
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -37,60 +37,6 @@ export function usePwaInstall(startUrl: string) {
     };
   }, []);
 
-  // Employee links are deep links. Always provide a visible installer entry
-  // on that page, even when Android has not yet emitted beforeinstallprompt.
-  // This avoids the previous situation where the employee saw no installer.
-  React.useEffect(() => {
-    const isEmployee = startUrl.startsWith('/funcionario/');
-    if (!isEmployee || isStandalone()) return;
-
-    const id = 'rmd-employee-install';
-    let button = document.getElementById(id) as HTMLButtonElement | null;
-    if (!button) {
-      button = document.createElement('button');
-      button.id = id;
-      button.type = 'button';
-      button.textContent = '📱 Instalar PontoFace';
-      button.setAttribute('aria-label', 'Instalar PontoFace no celular');
-      Object.assign(button.style, {
-        position: 'fixed',
-        right: '14px',
-        bottom: '14px',
-        zIndex: '99999',
-        border: '0',
-        borderRadius: '14px',
-        padding: '13px 17px',
-        background: '#0d9488',
-        color: '#fff',
-        fontSize: '15px',
-        fontWeight: '800',
-        boxShadow: '0 5px 20px rgba(0,0,0,.25)',
-        cursor: 'pointer'
-      });
-      document.body.appendChild(button);
-    }
-
-    const handleClick = async () => {
-      if (installPrompt) {
-        await installPrompt.prompt();
-        await installPrompt.userChoice;
-        setInstallPrompt(null);
-        return;
-      }
-      if (isIOS()) {
-        setShowIosHint(true);
-      } else {
-        setShowBrowserHint(true);
-      }
-    };
-    button.addEventListener('click', handleClick);
-
-    return () => {
-      button?.removeEventListener('click', handleClick);
-      button?.remove();
-    };
-  }, [startUrl, installPrompt]);
-
   async function install() {
     if (installPrompt) {
       await installPrompt.prompt();
@@ -102,8 +48,9 @@ export function usePwaInstall(startUrl: string) {
     else setShowBrowserHint(true);
   }
 
+  const isEmployee = startUrl.startsWith('/funcionario/');
   return {
-    canInstall: Boolean(installPrompt) || isIOS() || startUrl.startsWith('/funcionario/'),
+    canInstall: Boolean(installPrompt) || isIOS() || isEmployee,
     installed,
     showIosHint,
     setShowIosHint,
