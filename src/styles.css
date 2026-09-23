@@ -148,3 +148,35 @@ tbody tr:hover{background:rgba(23,107,73,.035);}
   .kpis{grid-template-columns:1fr 1fr;}
   .row2,.row3{grid-template-columns:1fr;}
 }
+
+/* ---------- RMD visual identities ---------- */
+.theme-rmd{
+  --brand:#1d4ed8; --brand-2:#2563eb; --accent:#60a5fa;
+}
+.theme-company{
+  --brand:#6d28d9; --brand-2:#7c3aed; --accent:#a78bfa;
+}
+.theme-employee{
+  --brand:#0f766e; --brand-2:#0d9488; --accent:#2dd4bf;
+}
+.brand-lockup{display:flex;align-items:center;gap:9px;}
+.brand-mark{width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;background:rgba(255,255,255,.12);color:currentColor;flex:none;}
+.brand-mark svg{width:27px;height:27px;display:block;}
+.admin.theme-rmd .admin-nav{background:linear-gradient(180deg,#1d4ed8,#172554);}
+.admin.theme-company .admin-nav{background:linear-gradient(180deg,#6d28d9,#3b0764);}
+.admin.theme-rmd .kpi::before{background:linear-gradient(90deg,#2563eb,#60a5fa);}
+.admin.theme-company .kpi::before{background:linear-gradient(90deg,#7c3aed,#a78bfa);}
+.admin.theme-rmd .mobile-menu-popover button.active{background:#2563eb;}
+.admin.theme-company .mobile-menu-popover button.active{background:#7c3aed;}
+.admin.theme-rmd .admin-topbar h1{color:#1d4ed8;}
+.admin.theme-company .admin-topbar h1{color:#6d28d9;}
+.app.theme-employee .top{background:linear-gradient(135deg,#0f766e,#134e4a);}
+.app.theme-employee .avatar{background:linear-gradient(135deg,#0d9488,#2dd4bf);box-shadow:0 4px 14px rgba(13,148,136,.28);}
+.app.theme-employee .clock{color:#0f766e;}
+.app.theme-employee .primary{background:linear-gradient(135deg,#0d9488,#0f766e);box-shadow:0 6px 18px rgba(13,148,136,.25);}
+.app.theme-employee .secondary{border-color:#0d9488;color:#0f766e;}
+.brand-lockup .brand span span{opacity:.82;}
+@media(max-width:900px){
+  .brand-mark{width:32px;height:32px;border-radius:9px;}
+  .brand-mark svg{width:25px;height:25px;}
+}

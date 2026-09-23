@@ -600,10 +600,10 @@ function EmployeePunch() {
       ? hasExitToday
       : todayRows.length >= maxPunchesToday && lastPunchType === 'exit';
 
-  return <div className="app">
+  return <div className="app theme-employee">
     <header className="top"><div className="brand" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1 }}><span style={{ fontSize: 24 }}>PontoFace</span><small style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>RMD</small></div><span className={online ? 'online' : 'offline'}>● {online ? 'Online' : 'Offline'}</span></header>
     <main className="employee">
-      <div className="identity"><div className="avatar">👤</div><div><div style={{ fontSize: 12, opacity: 0.65, marginBottom: 2 }}>Empresa</div><div style={{ fontWeight: 800, fontSize: 16, marginBottom: 5 }}>{labels.name || 'Empresa'}</div><small>{labels.person_label}</small><h1>{employeeName}</h1></div></div>
+      <div className="identity"><div className="avatar" aria-hidden="true"><svg viewBox="0 0 40 40"><circle cx="20" cy="14" r="6" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M9 34c1.8-7 5.8-10.5 11-10.5S29.2 27 31 34" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></div><div><div style={{ fontSize: 12, opacity: 0.65, marginBottom: 2 }}>Empresa</div><div style={{ fontWeight: 800, fontSize: 16, marginBottom: 5 }}>{labels.name || 'Empresa'}</div><small>{labels.person_label}</small><h1>{employeeName}</h1></div></div>
       <div className="clock">{new Date().toLocaleTimeString('pt-BR')}</div>
       <div className="status">{message}</div>
       {!dayFinalized && presenceMode !== 'exit' && (presenceMode === 'entry' || nextPunchType === 'entry') && (

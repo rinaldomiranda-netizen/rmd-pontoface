@@ -86,10 +86,13 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
 
   return (
     <ToastContext.Provider value={showToast}>
-    <div className="admin">
+    <div className={`admin ${role === 'owner' ? 'theme-rmd' : 'theme-company'}`}>
       <div className="admin-shell">
         <nav className="admin-nav">
-          <div className="brand">RMD <span>PontoFace</span></div>
+          <div className="brand brand-lockup">
+  <span className="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40" role="img"><path d="M20 3 34 8v10c0 9-5.8 15.6-14 19C11.8 33.6 6 27 6 18V8l14-5Z" fill="currentColor" opacity=".18"/><path d="M20 6.5 31 10v8c0 7.1-4.1 12.4-11 16-6.9-3.6-11-8.9-11-16v-8l11-3.5Z" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M20 12v9l6 3" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+  <span>RMD <span>PontoFace</span></span>
+</div>
           {nav}
           <button className="logout" onClick={onLogout}>Sair</button>
         </nav>
