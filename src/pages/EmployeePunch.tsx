@@ -534,6 +534,35 @@ function EmployeePunch() {
           </div>
         </div>
       )}
+      {Array.isArray(dashboard?.history) && dashboard.history.length > 0 && (
+        <div className="fallback" style={{ marginBottom: 14 }}>
+          <b>Histórico de pontos</b>
+          <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+            {dashboard.history.slice(0, 10).map((h: any) => {
+              const dt = new Date(h.occurred_at);
+              const balance = Number(h.balance_minutes ?? 0);
+              return (
+                <div key={h.id} style={{ borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <b>{h.punch_type === 'entry' ? 'Entrada' : 'Saída'}</b>
+                    <span>{dt.toLocaleDateString('pt-BR')} {dt.toLocaleTimeString('pt-BR')}</span>
+                  </div>
+                  <div className="helptext" style={{ marginTop: 3 }}>
+                    {h.location_address || h.location_label || 'Localização não identificada'}
+                  </div>
+                  {h.location_status === 'inside' && <div className="helptext">Dentro do local autorizado{h.location_distance_m != null ? ' • ' + Math.round(h.location_distance_m) + ' m' : ''}</div>}
+                  {h.location_status === 'outside' && <div className="helptext" style={{ color: 'var(--danger)' }}>Fora do local autorizado{h.location_distance_m != null ? ' • ' + Math.round(h.location_distance_m) + ' m' : ''}</div>}
+                  {h.balance_minutes != null && balance !== 0 && (
+                    <div style={{ marginTop: 3, color: balance < 0 ? 'var(--danger)' : 'var(--brand-2)', fontWeight: 800 }}>
+                      Saldo {balance > 0 ? '+' : ''}{Math.round(balance)} min
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div className="actions">
         <button className="primary" onClick={() => startPunch('entry')}>✓ {labels.entry_label}</button>
         {labels.exit_enabled && <button className="secondary" onClick={() => startPunch('exit')}>⇥ {labels.exit_label}</button>}
