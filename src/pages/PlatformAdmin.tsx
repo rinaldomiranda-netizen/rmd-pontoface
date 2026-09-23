@@ -1,5 +1,6 @@
 import React from 'react';
 import { supabase, callFunction } from '../lib/supabaseClient';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 
 type Company = {
   id: string; name: string; active: boolean; created_at: string;
@@ -24,6 +25,16 @@ export default function PlatformAdmin() {
     return () => sub.subscription.unsubscribe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useAutoRefresh(
+    check,
+    'platform-admin',
+    [
+      { table: 'companies' },
+      { table: 'company_invites' }
+    ],
+    7000
+  );
 
   async function check() {
     const { data } = await supabase.auth.getSession();
