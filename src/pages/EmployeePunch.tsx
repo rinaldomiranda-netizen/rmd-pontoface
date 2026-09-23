@@ -528,9 +528,7 @@ function EmployeePunch() {
       const data = await r.json();
       if (r.ok && data.approved) {
         const loc = data.location_address || data.location_label;
-        const balance = Number(data.balance_minutes ?? 0);
-        const saldo = balance > 0 ? ' • Saldo +' + Math.round(balance) + ' min' : balance < 0 ? ' • Faltam ' + Math.abs(Math.round(balance)) + ' min' : '';
-        setMessage(`Ponto confirmado às ${new Date(currentPunch.occurred_at).toLocaleTimeString('pt-BR')}${loc ? ' — ' + loc : ''}.${saldo}`);
+        setMessage(`Ponto confirmado às ${new Date(currentPunch.occurred_at).toLocaleTimeString('pt-BR')}${loc ? ' — ' + loc : ''}.`);
         setDashboard((current: any) => current ? {
           ...current,
           today: {
@@ -653,9 +651,16 @@ function EmployeePunch() {
             <>
               <div style={{ marginTop: 4 }}>Jornada: {dashboard.today.schedule.entry_time?.slice(0,5)} às {dashboard.today.schedule.exit_time?.slice(0,5)}</div>
               <div style={{ marginTop: 3 }}>Trabalhado: {dashboard.today.worked ?? 0} min</div>
-              <div style={{ marginTop: 3, color: Number(dashboard.today.balance) < 0 ? 'var(--danger)' : 'var(--brand-2)', fontWeight: 800 }}>
-                Saldo: {dashboard.today.balance == null ? '0 min' : (Number(dashboard.today.balance) > 0 ? '+' : '') + Math.round(Number(dashboard.today.balance)) + ' min'}
-              </div>
+              {(() => {
+                const firstEntry = (Array.isArray(dashboard.today?.rows) ? dashboard.today.rows : []).find((r:any) => r.punch_type === 'entry');
+                const scheduled = dashboard.today?.schedule?.entry_time;
+                if (!firstEntry || !scheduled) return null;
+                const [sh, sm] = String(scheduled).slice(0,5).split(':').map(Number);
+                const dt = new Date(firstEntry.occurred_at);
+                const delta = (dt.getHours() * 60 + dt.getMinutes()) - (sh * 60 + sm);
+                if (!delta) return null;
+                return <div style={{ marginTop: 3, color: delta > 0 ? 'var(--danger)' : 'var(--brand-2)', fontWeight: 800 }}>{delta > 0 ? 'Atraso na entrada: ' + delta + ' min' : 'Entrada antecipada: +' + Math.abs(delta) + ' min'}</div>;
+              })()}
             </>
           ) : (
             <>

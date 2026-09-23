@@ -533,7 +533,8 @@ function Attendance({ companyId, role }: { companyId: string; role: string }) {
   const [date, setDate] = React.useState(() => new Date().toISOString().slice(0, 10));
   const [openHistory, setOpenHistory] = React.useState<string | null>(null);
   const [historyCache, setHistoryCache] = React.useState<Record<string, any[]>>({});
-  const [loading, setLoading] = React.useState(false);
+  const [loading, setLoading] = React.useState(true);
+  const initialLoadRef = React.useRef(true);
   const canReset = ['owner', 'admin', 'hr'].includes(role);
 
   React.useEffect(() => { load(); }, [companyId, date]);
@@ -552,7 +553,8 @@ function Attendance({ companyId, role }: { companyId: string; role: string }) {
   );
 
   async function load() {
-    setLoading(true);
+    const firstLoad = initialLoadRef.current;
+    if (firstLoad) setLoading(true);
     const start = new Date(date + 'T00:00:00');
     const end = new Date(date + 'T23:59:59.999');
     const [{ data: dayRows }, { data: empRows }, { data: schedRows }, { data: alertRows }, { data: historyRows }] = await Promise.all([
@@ -561,7 +563,7 @@ function Attendance({ companyId, role }: { companyId: string; role: string }) {
         .eq('company_id', companyId).gte('occurred_at', start.toISOString()).lte('occurred_at', end.toISOString())
         .order('occurred_at', { ascending: true }),
       supabase.from('employees').select('id,full_name,registration_code,job_title,active').eq('company_id', companyId).order('full_name'),
-      supabase.from('employee_work_schedules').select('employee_id,weekday,enabled,morning_enabled,afternoon_enabled').eq('company_id', companyId),
+      supabase.from('employee_work_schedules').select('employee_id,weekday,enabled,morning_enabled,afternoon_enabled,entry_time,exit_time').eq('company_id', companyId),
       supabase.from('attendance_alerts').select('id,employee_id,alert_type,minutes_delta,message,created_at,acknowledged')
         .eq('company_id', companyId).gte('created_at', start.toISOString()).lte('created_at', end.toISOString()).order('created_at', { ascending: false }),
       supabase.from('attendance_records').select('id,employee_id,punch_type,occurred_at,balance_minutes')
@@ -572,7 +574,10 @@ function Attendance({ companyId, role }: { companyId: string; role: string }) {
     setSchedules(schedRows || []);
     setAlerts(alertRows || []);
     setAllRecords(historyRows || []);
-    setLoading(false);
+    if (firstLoad) {
+      initialLoadRef.current = false;
+      setLoading(false);
+    }
   }
 
   const selectedWeekday = new Date(date + 'T12:00:00').getDay() || 7;
@@ -658,8 +663,17 @@ function Attendance({ companyId, role }: { companyId: string; role: string }) {
 
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(290px,1fr))',gap:12,marginBottom:14}}>
         {byEmployee.map(item => {
-          const balance = item.rows.length ? Number(item.rows[item.rows.length-1].balance_minutes || 0) : 0;
           const completed = item.rows.length;
+          const firstEntry = item.rows.find((r:any) => r.punch_type === 'entry');
+          const scheduledEntry = item.schedule?.entry_time || null;
+          let entryDelta: number | null = null;
+          if (firstEntry && scheduledEntry) {
+            const [sh, sm] = String(scheduledEntry).slice(0,5).split(':').map(Number);
+            const dt = new Date(firstEntry.occurred_at);
+            const actualMinutes = dt.getHours() * 60 + dt.getMinutes();
+            const scheduledMinutes = sh * 60 + sm;
+            entryDelta = actualMinutes - scheduledMinutes;
+          }
           const maxToday = item.schedule?.afternoon_enabled === true ? 4 : (item.schedule?.enabled === false ? 0 : 2);
           return (
             <div className="card" key={item.employee.id} style={{margin:0}}>
@@ -679,12 +693,11 @@ function Attendance({ companyId, role }: { companyId: string; role: string }) {
                     <span key={p.id} className="tag">{p.punch_type==='entry'?'Entrada':'Saída'} {new Date(p.occurred_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
                   ))}
                 </div>
-                <div style={{fontWeight:800,color:balance<0?'var(--danger)':balance>0?'var(--brand-2)':'inherit'}}>
-                  Saldo do dia: {balance>0?'+':''}{balance} min
-                </div>
-                <div style={{fontWeight:800,color:item.totalBalance<0?'var(--danger)':item.totalBalance>0?'var(--brand-2)':'inherit'}}>
-                  Saldo acumulado: {item.totalBalance>0?'+':''}{Math.round(item.totalBalance)} min
-                </div>
+                {entryDelta !== null && entryDelta !== 0 && (
+                  <div style={{fontWeight:800,color:entryDelta>0?'var(--danger)':'var(--brand-2)'}}>
+                    {entryDelta > 0 ? 'Atraso na entrada: ' + entryDelta + ' min' : 'Entrada antecipada: +' + Math.abs(entryDelta) + ' min'}
+                  </div>
+                )}
 
                 {item.alerts.slice(0,2).map((a:any)=>
                   <div key={a.id} className="helptext" style={{color:Number(a.minutes_delta)<0?'var(--danger)':'inherit'}}>⚠ {a.message}</div>
