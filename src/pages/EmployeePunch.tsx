@@ -443,19 +443,22 @@ function EmployeePunch() {
       setMessage('Link do funcionário incompleto. Gere novamente o acesso no painel da empresa.');
       return;
     }
-    setMessage('Obtendo localização precisa...');
-    const geo = await getGeolocation();
     const p = basePunch(type);
-    p.latitude = geo.latitude; p.longitude = geo.longitude; p.location_accuracy_m = geo.accuracy;
-    p.location_label = geo.location_label;
-    p.location_address = geo.location_address;
     setSelectedPunch(p);
+
     if (!navigator.onLine) {
-      await queuePut(p); await refreshQueue();
+      const geo = await getGeolocation();
+      const offlinePunch = { ...p, latitude: geo.latitude, longitude: geo.longitude, location_accuracy_m: geo.accuracy, location_label: geo.location_label, location_address: geo.location_address };
+      await queuePut(offlinePunch); await refreshQueue();
       setMessage('Ponto guardado no aparelho. A confirmação será feita quando a internet voltar.');
       return;
     }
+
+    // Não bloqueie a câmera pelo GPS. O reconhecimento facial começa imediatamente.
     setMode('liveness');
+    getGeolocation().then(geo => {
+      setSelectedPunch(current => current ? { ...current, latitude: geo.latitude, longitude: geo.longitude, location_accuracy_m: geo.accuracy, location_label: geo.location_label, location_address: geo.location_address } : current);
+    }).catch(() => {});
   }
 
   async function onLivenessDone(punch: Punch, result: { descriptor: number[] }) {
