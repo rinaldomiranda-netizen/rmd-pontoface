@@ -236,6 +236,7 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const [streaming, setStreaming] = React.useState(false);
+  const [modelsReady, setModelsReady] = React.useState(false);
   const [captured, setCaptured] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState('Carregando o motor de reconhecimento...');
   const [busy, setBusy] = React.useState(false);
@@ -243,40 +244,94 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
   React.useEffect(() => {
     let stream: MediaStream | null = null;
     let cancelled = false;
-    // Pede a câmera IMEDIATAMENTE (no mesmo instante do clique), e carrega o
-    // motor de reconhecimento em paralelo — em vez de esperar o motor carregar
-    // primeiro, o que faz alguns navegadores recusarem o pedido de câmera depois.
+
+    // Câmera e modelos carregam em paralelo. O botão de captura só é liberado
+    // quando as duas etapas estiverem realmente prontas.
     navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
       .then(s => {
         if (cancelled) { s.getTracks().forEach(t => t.stop()); return; }
         stream = s;
-        if (videoRef.current) { videoRef.current.srcObject = s; setStreaming(true); }
+        if (videoRef.current) {
+          videoRef.current.srcObject = s;
+          setStreaming(true);
+        }
       })
-      .catch(() => setStatus('Não foi possível acessar a câmera. Verifique as permissões do navegador.'));
-    loadFaceModels().then(() => { if (!cancelled) setStatus(''); })
-      .catch(() => { if (!cancelled) setStatus('Não foi possível carregar o motor de reconhecimento. Verifique sua conexão e recarregue a página.'); });
-    return () => { cancelled = true; stream?.getTracks().forEach(t => t.stop()); };
+      .catch(() => {
+        if (!cancelled) setStatus('Não foi possível acessar a câmera. Verifique as permissões do navegador.');
+      });
+
+    loadFaceModels()
+      .then(() => {
+        if (!cancelled) {
+          setModelsReady(true);
+          setStatus('');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setStatus('Não foi possível carregar o motor de reconhecimento. Verifique sua conexão e recarregue a página.');
+      });
+
+    return () => {
+      cancelled = true;
+      stream?.getTracks().forEach(t => t.stop());
+    };
   }, []);
 
   function capture() {
-    if (!videoRef.current || !canvasRef.current) return;
+    if (!videoRef.current || !canvasRef.current || !modelsReady) return;
     const v = videoRef.current, c = canvasRef.current;
+
+    if (!v.videoWidth || !v.videoHeight) {
+      setStatus('A câmera ainda não está pronta. Aguarde um instante e tente novamente.');
+      return;
+    }
+
     const scale = Math.min(1, 720 / Math.max(v.videoWidth, v.videoHeight));
-    c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale);
-    c.getContext('2d')!.drawImage(v, 0, 0, c.width, c.height);
+    c.width = Math.round(v.videoWidth * scale);
+    c.height = Math.round(v.videoHeight * scale);
+    const ctx = c.getContext('2d');
+    if (!ctx) {
+      setStatus('Não foi possível capturar a imagem. Tente novamente.');
+      return;
+    }
+
+    ctx.drawImage(v, 0, 0, c.width, c.height);
     setCaptured(c.toDataURL('image/jpeg', 0.92));
+    setStatus('');
   }
 
   async function confirm() {
-    if (!captured || !canvasRef.current) return;
+    if (!captured || busy) return;
     setBusy(true);
-    setStatus('Analisando o rosto na foto...');
+    setStatus('Preparando análise facial...');
 
     try {
-      const detection = await Promise.race([
-        detectFace(canvasRef.current),
+      // Garante que os três modelos estejam carregados antes de iniciar a análise.
+      await Promise.race([
+        loadFaceModels(),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('FACE_ANALYSIS_TIMEOUT')), 15000)
+          setTimeout(() => reject(new Error('FACE_MODELS_TIMEOUT')), 20000)
+        )
+      ]);
+
+      setStatus('Analisando o rosto na foto...');
+
+      // Analisa a própria imagem capturada, já decodificada, e não um canvas
+      // que pode estar sendo reutilizado pelo navegador.
+      const image = new Image();
+      image.decoding = 'async';
+      image.src = captured;
+      await Promise.race([
+        image.decode(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('IMAGE_DECODE_TIMEOUT')), 10000)
+        )
+      ]);
+
+      const detection = await Promise.race([
+        detectFace(image),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('FACE_ANALYSIS_TIMEOUT')), 45000)
         )
       ]);
 
@@ -285,8 +340,7 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
 
       setStatus('Salvando cadastro facial...');
 
-      // Toda a conclusão fica no servidor: a foto capturada é enviada junto
-      // com o descritor e o servidor grava Storage + facial_profiles.
+      // Uma única operação no servidor: salva a foto e o perfil facial juntos.
       const enrollPromise = supabase.functions.invoke('complete-face-enrollment', {
         body: {
           company_id: companyId,
@@ -311,6 +365,7 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
       if (enrollError) {
         console.error('complete-face-enrollment error', enrollError);
         const message = enrollError.message || '';
+
         if (message.includes('forbidden')) {
           setStatus('Você não tem permissão para cadastrar o rosto.');
         } else if (message.includes('employee_not_found_or_inactive')) {
@@ -338,13 +393,19 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
       onDone();
     } catch (error) {
       const code = error instanceof Error ? error.message : '';
-      if (code === 'FACE_ANALYSIS_TIMEOUT') {
-        setStatus('Análise facial demorou mais que o esperado. Tire outra foto e tente novamente.');
+
+      if (code === 'FACE_MODELS_TIMEOUT') {
+        setStatus('O motor facial ainda não terminou de carregar. Recarregue a página e tente novamente.');
+      } else if (code === 'IMAGE_DECODE_TIMEOUT') {
+        setStatus('A foto não pôde ser preparada para análise. Tire outra foto.');
+      } else if (code === 'FACE_ANALYSIS_TIMEOUT') {
+        setStatus('A análise facial demorou mais que o esperado. Tente novamente após o carregamento completo do reconhecimento.');
       } else if (code === 'FACE_NOT_FOUND') {
-        setStatus('Não foi possível analisar o rosto da foto. Tente novamente com boa iluminação e olhando diretamente para a câmera.');
+        setStatus('Não foi possível identificar um rosto nessa foto. Olhe diretamente para a câmera e use boa iluminação.');
       } else if (code === 'ENROLL_TIMEOUT') {
         setStatus('A confirmação demorou mais que o esperado. Tente novamente.');
       } else {
+        console.error('cadastro facial error', error);
         setStatus('Não foi possível concluir o cadastro facial. Tente novamente.');
       }
     } finally {
@@ -362,15 +423,14 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
       <canvas ref={canvasRef} style={{ display: 'none' }} />
       {status && <p className="helptext" style={{ marginTop: 8 }}>{status}</p>}
       <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
-        {!captured && <button className="btn green" disabled={!streaming} onClick={capture}>Capturar foto</button>}
-        {captured && <button className="btn light" onClick={() => setCaptured(null)}>Tirar novamente</button>}
-        {captured && <button className="btn green" disabled={busy} onClick={confirm}>{busy ? 'Enviando...' : 'Confirmar cadastro'}</button>}
-        <button className="btn light" onClick={onCancel}>Cancelar</button>
+        {!captured && <button className="btn green" disabled={!streaming || !modelsReady} onClick={capture}>Capturar foto</button>}
+        {captured && <button className="btn light" disabled={busy} onClick={() => { setCaptured(null); setStatus(''); }}>Tirar novamente</button>}
+        {captured && <button className="btn green" disabled={busy || !modelsReady} onClick={confirm}>{busy ? 'Enviando...' : 'Confirmar cadastro'}</button>}
+        <button className="btn light" disabled={busy} onClick={onCancel}>Cancelar</button>
       </div>
     </div>
   );
 }
-
 /* ---------------------------- Attendance ---------------------------- */
 function Attendance({ companyId }: { companyId: string }) {
   const [rows, setRows] = React.useState<any[]>([]);
