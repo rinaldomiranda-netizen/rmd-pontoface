@@ -264,7 +264,7 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
       .then(() => {
         if (!cancelled) {
           setModelsReady(true);
-          setStatus('');
+          if (!captured) setStatus('');
         }
       })
       .catch(() => {
@@ -278,7 +278,7 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
   }, []);
 
   function capture() {
-    if (!videoRef.current || !canvasRef.current || !modelsReady) return;
+    if (!videoRef.current || !canvasRef.current) return;
     const v = videoRef.current, c = canvasRef.current;
 
     if (!v.videoWidth || !v.videoHeight) {
@@ -423,7 +423,7 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
       <canvas ref={canvasRef} style={{ display: 'none' }} />
       {status && <p className="helptext" style={{ marginTop: 8 }}>{status}</p>}
       <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
-        {!captured && <button className="btn green" disabled={!streaming || !modelsReady} onClick={capture}>Capturar foto</button>}
+        {!captured && <button className="btn green" disabled={!streaming} onClick={capture}>Capturar foto</button>}
         {captured && <button className="btn light" disabled={busy} onClick={() => { setCaptured(null); setStatus(''); }}>Tirar novamente</button>}
         {captured && <button className="btn green" disabled={busy || !modelsReady} onClick={confirm}>{busy ? 'Enviando...' : 'Confirmar cadastro'}</button>}
         <button className="btn light" disabled={busy} onClick={onCancel}>Cancelar</button>
