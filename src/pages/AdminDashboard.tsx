@@ -29,6 +29,7 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
   const [labels, setLabels] = React.useState({ person_label: 'Funcionário', people_label: 'Funcionários', entry_label: 'Bater entrada', exit_label: 'Bater saída', exit_enabled: true, name: 'RMD PontoFace' });
   const pwa = usePwaInstall('/admin');
   const [toastMsg, setToastMsg] = React.useState<string | null>(null);
+  const [companyAlerts, setCompanyAlerts] = React.useState<any[]>([]);
   const toastTimer = React.useRef<number | null>(null);
   function showToast(msg: string) {
     setToastMsg(msg);
@@ -39,6 +40,18 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
   React.useEffect(() => {
     supabase.from('companies').select('name,person_label,people_label,entry_label,exit_label,exit_enabled').eq('id', companyId).maybeSingle()
       .then(({ data }) => { if (data) setLabels(data as any); });
+  }, [companyId]);
+
+  React.useEffect(() => {
+    async function refreshCompanyAlerts() {
+      try {
+        const { data, error } = await supabase.functions.invoke('check-attendance-alerts', { body: { company_id: companyId } });
+        if (!error && data?.ok) setCompanyAlerts(Array.isArray(data.alerts) ? data.alerts : []);
+      } catch {}
+    }
+    refreshCompanyAlerts();
+    const timer = window.setInterval(refreshCompanyAlerts, 30000);
+    return () => window.clearInterval(timer);
   }, [companyId]);
 
   const navLabel = (s: Section) => s === 'employees' ? labels.people_label : SECTIONS.find(x => x.id === s)?.label;
@@ -68,6 +81,20 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
             <button className="btn light" onClick={onLogout}>Sair</button>
           </div>
           {pwa.showIosHint && <div className="fallback"><p style={{ margin: 0 }}>No iPhone ou iPad: toque no ícone de <b>Compartilhar</b> e depois em <b>"Adicionar à Tela de Início"</b>.</p><button className="link" onClick={() => pwa.setShowIosHint(false)}>Entendi</button></div>}
+          {companyAlerts.length > 0 && (
+            <div className="card" style={{ border: '1px solid #e2b65c', background: '#fff8df' }}>
+              <h2 style={{ marginBottom: 8 }}>Alertas de jornada</h2>
+              {companyAlerts.slice(0, 5).map((a: any) => (
+                <div key={a.id} style={{ padding: '9px 0', borderBottom: '1px solid #ead99c' }}>
+                  <b>{a.employees?.full_name || 'Funcionário'}</b>
+                  <div style={{ marginTop: 3 }}>{a.message}</div>
+                  {a.minutes_delta != null && <div className={Number(a.minutes_delta) < 0 ? 'tag danger' : 'tag warn'} style={{ marginTop: 4 }}>
+                    {Number(a.minutes_delta) > 0 ? '+' : ''}{Math.round(Number(a.minutes_delta))} min
+                  </div>}
+                </div>
+              ))}
+            </div>
+          )}
           {section === 'overview' ? <div className="mobile-nav">{nav}</div> : <div className="mobile-nav-back"><button className="btn light wide" onClick={() => setSection('overview')}>← Voltar ao menu</button></div>}
           {section === 'overview' && <Overview companyId={companyId} />}
           {section === 'employees' && <Employees companyId={companyId} role={role} labels={labels} />}
@@ -748,6 +775,13 @@ function CompanySettings({ companyId, role }: { companyId: string; role: string 
       name: company.name, legal_name: company.legal_name, tax_id: company.tax_id, phone: company.phone,
       biometric_liveness_threshold: company.biometric_liveness_threshold, biometric_face_match_threshold: company.biometric_face_match_threshold,
       biometric_enabled: company.biometric_enabled,
+      location_verification_enabled: company.location_verification_enabled,
+      location_tolerance_m: company.location_tolerance_m,
+      employee_alerts_enabled: company.employee_alerts_enabled,
+      employee_late_alert_enabled: company.employee_late_alert_enabled,
+      employee_missing_alert_enabled: company.employee_missing_alert_enabled,
+      employee_overtime_alert_enabled: company.employee_overtime_alert_enabled,
+      company_alerts_enabled: company.company_alerts_enabled,
       person_label: company.person_label, people_label: company.people_label,
       entry_label: company.entry_label, exit_label: company.exit_label, exit_enabled: company.exit_enabled
     }});
@@ -778,6 +812,14 @@ function CompanySettings({ companyId, role }: { companyId: string; role: string 
           <button type="button" className={`switch ${company.exit_enabled ? 'on' : ''}`} disabled={!canEdit} onClick={() => setCompany({ ...company, exit_enabled: !company.exit_enabled })}></button>
           Usar botão de saída (desligue se for só marcar presença, sem saída)
         </label>
+        <h2 style={{ marginTop: 8 }}>Localização e alertas</h2>
+        <div className="field"><label>Tolerância de localização (m)</label><input type="number" min="0" max="1000" value={company.location_tolerance_m ?? 0} onChange={e => setCompany({ ...company, location_tolerance_m: Number(e.target.value) })} disabled={!canEdit} /></div>
+        <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13.5, marginBottom:8 }}><input type="checkbox" checked={company.location_verification_enabled !== false} onChange={e=>setCompany({ ...company, location_verification_enabled:e.target.checked })} disabled={!canEdit}/> Verificar local autorizado</label>
+        <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13.5, marginBottom:8 }}><input type="checkbox" checked={company.employee_alerts_enabled !== false} onChange={e=>setCompany({ ...company, employee_alerts_enabled:e.target.checked })} disabled={!canEdit}/> Alertas para o funcionário</label>
+        <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13.5, marginBottom:8 }}><input type="checkbox" checked={company.employee_late_alert_enabled !== false} onChange={e=>setCompany({ ...company, employee_late_alert_enabled:e.target.checked })} disabled={!canEdit}/> Alertas de atraso</label>
+        <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13.5, marginBottom:8 }}><input type="checkbox" checked={company.employee_missing_alert_enabled !== false} onChange={e=>setCompany({ ...company, employee_missing_alert_enabled:e.target.checked })} disabled={!canEdit}/> Alertas de falta de registro</label>
+        <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13.5, marginBottom:8 }}><input type="checkbox" checked={company.employee_overtime_alert_enabled !== false} onChange={e=>setCompany({ ...company, employee_overtime_alert_enabled:e.target.checked })} disabled={!canEdit}/> Alertas de hora extra</label>
+        <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13.5, marginBottom:14 }}><input type="checkbox" checked={company.company_alerts_enabled !== false} onChange={e=>setCompany({ ...company, company_alerts_enabled:e.target.checked })} disabled={!canEdit}/> Alertas para a empresa</label>
         <h2 style={{ marginTop: 8 }}>Biometria</h2>
         <div className="row2">
           <div className="field"><label>Limite de vivacidade (%)</label><input type="number" value={company.biometric_liveness_threshold} onChange={e => setCompany({ ...company, biometric_liveness_threshold: Number(e.target.value) })} disabled={!canEdit} /></div>
