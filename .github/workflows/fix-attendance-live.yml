@@ -1,4 +1,4 @@
-name: Fix attendance live refresh
+name: Fix company entry alerts placement
 
 on:
   push:
@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Patch attendance display and refresh
+      - name: Move company alerts to dashboard and attendance only
         shell: python
         run: |
           from pathlib import Path
@@ -22,60 +22,53 @@ jobs:
           p = Path('src/pages/AdminDashboard.tsx')
           s = p.read_text(encoding='utf-8')
 
-          old = "  const [loading, setLoading] = React.useState(false);\n  const canReset = ['owner', 'admin', 'hr'].includes(role);"
-          new = "  const [loading, setLoading] = React.useState(true);\n  const initialLoadRef = React.useRef(true);\n  const canReset = ['owner', 'admin', 'hr'].includes(role);"
-          if old in s and 'initialLoadRef' not in s:
-              s = s.replace(old, new, 1)
+          # Keep the company alert state and refresh logic, but remove the
+          # global alert banner that appeared on every section of the dashboard.
+          old = '''          {companyAlerts.length > 0 && (\n            <div className="card" style={{ border: '1px solid #e2b65c', background: '#fff8df' }}>\n              <h2 style={{ marginBottom: 8 }}>Alertas de jornada</h2>\n              {companyAlerts.slice(0, 5).map((a: any) => (\n                <div key={a.id} style={{ padding: '9px 0', borderBottom: '1px solid #ead99c' }}>\n                  <b>{a.employees?.full_name || a.employee_name_snapshot || 'Funcionário'}</b>\n                  <div style={{ marginTop: 3 }}>{a.message}</div>\n                  {a.minutes_delta != null && <div className={Number(a.minutes_delta) < 0 ? 'tag danger' : 'tag warn'} style={{ marginTop: 4 }}>\n                    {Number(a.minutes_delta) > 0 ? '+' : ''}{Math.round(Number(a.minutes_delta))} min\n                  </div>}\n                </div>\n              ))}\n            </div>\n          )}\n'''
+          if old in s:
+              s = s.replace(old, '', 1)
 
-          old = "  async function load() {\n    setLoading(true);\n    const start = new Date(date + 'T00:00:00');"
-          new = "  async function load() {\n    const firstLoad = initialLoadRef.current;\n    if (firstLoad) setLoading(true);\n    const start = new Date(date + 'T00:00:00');"
+          # Only pass the company alerts into the two places where the company
+          # needs to see them: the initial dashboard and Controle de Presença.
+          s = s.replace("{section === 'overview' && <Overview companyId={companyId} />}", "{section === 'overview' && <Overview companyId={companyId} companyAlerts={companyAlerts} />}", 1)
+          s = s.replace("{section === 'attendance' && <Attendance companyId={companyId} role={role} />}", "{section === 'attendance' && <Attendance companyId={companyId} role={role} companyAlerts={companyAlerts} />}", 1)
+
+          # Overview: alert directly below the KPI cards, only on the home dashboard.
+          old = "function Overview({ companyId }: { companyId: string }) {"
+          new = "function Overview({ companyId, companyAlerts }: { companyId: string; companyAlerts: any[] }) {"
+          s = s.replace(old, new, 1)
+
+          old = "  if (loading) return <p className=\"empty-row\">Carregando...</p>;\n  return (\n    <div className=\"kpis\">"
+          new = "  if (loading) return <p className=\"empty-row\">Carregando...</p>;\n  return (\n    <>\n      <div className=\"kpis\">"
           if old in s:
               s = s.replace(old, new, 1)
 
-          old = "    setAllRecords(historyRows || []);\n    setLoading(false);\n  }\n\n  const selectedWeekday"
-          new = "    setAllRecords(historyRows || []);\n    if (firstLoad) {\n      initialLoadRef.current = false;\n      setLoading(false);\n    }\n  }\n\n  const selectedWeekday"
+          old = "      <div className=\"kpi\"><small>Ocorrências (24h)</small><b>{stats.occurrences}</b></div>\n    </div>\n  );\n}\n"
+          new = "      <div className=\"kpi\"><small>Ocorrências (24h)</small><b>{stats.occurrences}</b></div>\n      </div>\n      <CompanyEntryAlerts alerts={companyAlerts} />\n    </>\n  );\n}\n"
           if old in s:
               s = s.replace(old, new, 1)
 
-          old = ".select('employee_id,weekday,enabled,morning_enabled,afternoon_enabled').eq('company_id', companyId)"
-          new = ".select('employee_id,weekday,enabled,morning_enabled,afternoon_enabled,entry_time,exit_time').eq('company_id', companyId)"
-          if old in s:
-              s = s.replace(old, new, 1)
+          # Attendance receives the same alert component, immediately above the
+          # date/filter controls. Other sections receive nothing.
+          old = "function Attendance({ companyId, role }: { companyId: string; role: string }) {"
+          new = "function Attendance({ companyId, role, companyAlerts }: { companyId: string; role: string; companyAlerts: any[] }) {"
+          s = s.replace(old, new, 1)
 
-          old = "          const balance = item.rows.length ? Number(item.rows[item.rows.length-1].balance_minutes || 0) : 0;\n          const completed = item.rows.length;"
-          new = "          const completed = item.rows.length;\n          const firstEntry = item.rows.find((r:any) => r.punch_type === 'entry');\n          const scheduledEntry = item.schedule?.entry_time || null;\n          let entryDelta: number | null = null;\n          if (firstEntry && scheduledEntry) {\n            const [sh, sm] = String(scheduledEntry).slice(0,5).split(':').map(Number);\n            const dt = new Date(firstEntry.occurred_at);\n            const actualMinutes = dt.getHours() * 60 + dt.getMinutes();\n            const scheduledMinutes = sh * 60 + sm;\n            entryDelta = actualMinutes - scheduledMinutes;\n          }"
-          if old in s:
-              s = s.replace(old, new, 1)
+          old = "  return (\n    <div>\n      <div className=\"card\" style={{display:'flex',gap:12,alignItems:'flex-end',flexWrap:'wrap'}}>{"
+          # The exact line in the current file has no extra brace; handle the real form below.
+          old2 = "  return (\n    <div>\n      <div className=\"card\" style={{display:'flex',gap:12,alignItems:'flex-end',flexWrap:'wrap'}}>"
+          new2 = "  return (\n    <div>\n      <CompanyEntryAlerts alerts={companyAlerts} />\n      <div className=\"card\" style={{display:'flex',gap:12,alignItems:'flex-end',flexWrap:'wrap'}}>"
+          if old2 in s:
+              s = s.replace(old2, new2, 1)
 
-          old = "                <div style={{fontWeight:800,color:balance<0?'var(--danger)':balance>0?'var(--brand-2)':'inherit'}}>\n                  Saldo do dia: {balance>0?'+':''}{balance} min\n                </div>\n                <div style={{fontWeight:800,color:item.totalBalance<0?'var(--danger)':item.totalBalance>0?'var(--brand-2)':'inherit'}}>\n                  Saldo acumulado: {item.totalBalance>0?'+':''}{Math.round(item.totalBalance)} min\n                </div>"
-          new = "                {entryDelta !== null && entryDelta !== 0 && (\n                  <div style={{fontWeight:800,color:entryDelta>0?'var(--danger)':'var(--brand-2)'}}>\n                    {entryDelta > 0 ? 'Atraso na entrada: ' + entryDelta + ' min' : 'Entrada antecipada: +' + Math.abs(entryDelta) + ' min'}\n                  </div>\n                )}"
-          if old in s:
-              s = s.replace(old, new, 1)
+          # Add a single reusable presentation component. Filter strictly to
+          # late-entry alerts so exit/overtime/missing-punch alerts never appear.
+          marker = "/* ---------------------------- Attendance ---------------------------- */"
+          component = '''function CompanyEntryAlerts({ alerts }: { alerts: any[] }) {\n  const entryAlerts = (alerts || []).filter((a: any) => {\n    const message = String(a?.message || '').toLowerCase();\n    const type = String(a?.alert_type || a?.type || '').toLowerCase();\n    const delta = Number(a?.minutes_delta);\n    return (type.includes('late') || type.includes('entry') || message.includes('entrada') || message.includes('atras')) && delta > 0;\n  }).slice(0, 5);\n\n  if (!entryAlerts.length) return null;\n  return (\n    <div className=\"card\" style={{ border: '1px solid #e2b65c', background: '#fff8df', marginBottom: 14 }}>\n      <h2 style={{ marginBottom: 8 }}>⚠ Alertas de entrada</h2>\n      {entryAlerts.map((a: any) => (\n        <div key={a.id} style={{ padding: '9px 0', borderBottom: '1px solid #ead99c' }}>\n          <b>{a.employees?.full_name || a.employee_name_snapshot || 'Funcionário'}</b>\n          <div style={{ marginTop: 3 }}>{a.message}</div>\n          <div className=\"tag danger\" style={{ marginTop: 4 }}>Atraso na entrada: {Math.round(deltaMinutes(a.minutes_delta))} min</div>\n        </div>\n      ))}\n    </div>\n  );\n}\n\nfunction deltaMinutes(value: any) {\n  const n = Number(value);\n  return Number.isFinite(n) ? Math.max(0, n) : 0;\n}\n\n'''
+          if marker in s and 'function CompanyEntryAlerts' not in s:
+              s = s.replace(marker, component + marker, 1)
+
           p.write_text(s, encoding='utf-8')
-
-          p2 = Path('src/pages/EmployeePunch.tsx')
-          e = p2.read_text(encoding='utf-8')
-
-          old = "              <div style={{ marginTop: 3, color: Number(dashboard.today.balance) < 0 ? 'var(--danger)' : 'var(--brand-2)', fontWeight: 800 }}>\n                Saldo: {dashboard.today.balance == null ? '0 min' : (Number(dashboard.today.balance) > 0 ? '+' : '') + Math.round(Number(dashboard.today.balance)) + ' min'}\n              </div>"
-          new = "              {(() => {\n                const firstEntry = (Array.isArray(dashboard.today?.rows) ? dashboard.today.rows : []).find((r:any) => r.punch_type === 'entry');\n                const scheduled = dashboard.today?.schedule?.entry_time;\n                if (!firstEntry || !scheduled) return null;\n                const [sh, sm] = String(scheduled).slice(0,5).split(':').map(Number);\n                const dt = new Date(firstEntry.occurred_at);\n                const delta = (dt.getHours() * 60 + dt.getMinutes()) - (sh * 60 + sm);\n                if (!delta) return null;\n                return <div style={{ marginTop: 3, color: delta > 0 ? 'var(--danger)' : 'var(--brand-2)', fontWeight: 800 }}>{delta > 0 ? 'Atraso na entrada: ' + delta + ' min' : 'Entrada antecipada: +' + Math.abs(delta) + ' min'}</div>;\n              })()}"
-          if old in e:
-              e = e.replace(old, new, 1)
-
-          old = "              const balance = Number(h.balance_minutes ?? 0);\n              return ("
-          new = "              return ("
-          if old in e:
-              e = e.replace(old, new, 1)
-
-          old = "                  {h.balance_minutes != null && balance !== 0 && (\n                    <div style={{ marginTop: 3, color: balance < 0 ? 'var(--danger)' : 'var(--brand-2)', fontWeight: 800 }}>\n                      Saldo {balance > 0 ? '+' : ''}{Math.round(balance)} min\n                    </div>\n                  )}"
-          if old in e:
-              e = e.replace(old, '', 1)
-
-          old = "        const balance = Number(data.balance_minutes ?? 0);\n        const saldo = balance > 0 ? ' • Saldo +' + Math.round(balance) + ' min' : balance < 0 ? ' • Faltam ' + Math.abs(Math.round(balance)) + ' min' : '';\n        setMessage(`Ponto confirmado às ${new Date(currentPunch.occurred_at).toLocaleTimeString('pt-BR')}${loc ? ' — ' + loc : ''}.${saldo}`);"
-          new = "        setMessage(`Ponto confirmado às ${new Date(currentPunch.occurred_at).toLocaleTimeString('pt-BR')}${loc ? ' — ' + loc : ''}.`);"
-          if old in e:
-              e = e.replace(old, new, 1)
-
-          p2.write_text(e, encoding='utf-8')
       - name: Commit patch
         shell: bash
         run: |
@@ -85,6 +78,6 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/pages/AdminDashboard.tsx src/pages/EmployeePunch.tsx
-          git commit -m "fix: remove per-punch cumulative balance display"
+          git add src/pages/AdminDashboard.tsx .github/workflows/fix-attendance-live.yml
+          git commit -m "fix: show company entry alerts only on dashboard and attendance"
           git push
