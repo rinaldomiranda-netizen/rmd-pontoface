@@ -233,7 +233,7 @@ function Employees({ companyId, role, labels }: { companyId: string; role: strin
                   {canManage && <button className="btn light" onClick={() => setEnrollFor({ id: e.id, name: e.full_name })}>Cadastrar rosto</button>}
                   {canManage && e.facial_status === 'enrolled' && <button className="btn light" onClick={() => deleteFace(e.id, e.full_name)}>Excluir foto</button>}
                   {canManage && <button className="btn light" onClick={() => toggleActive(e.id, e.active)}>{e.active ? 'Desativar' : 'Ativar'}</button>}
-                  {canManage && <button className="btn danger" onClick={() => deleteEmployee(e.id, e.full_name)}>Excluir funcionário</button>
+                  {canManage && <button className="btn danger" onClick={() => deleteEmployee(e.id, e.full_name)}>Excluir funcionário</button>}
                 </td>
               </tr>
             ))}
