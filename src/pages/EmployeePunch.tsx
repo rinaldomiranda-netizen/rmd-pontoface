@@ -147,9 +147,6 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
     }
     for (let i = 0; i < len; i++) out[i] /= items.length;
 
-    // Normaliza o vetor para manter o mesmo padrão do descritor do face-api.
-    const norm = Math.sqrt(out.reduce((sum, v) => sum + v * v, 0));
-    if (norm > 0) for (let i = 0; i < len; i++) out[i] /= norm;
     return out;
   }
 
