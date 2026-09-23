@@ -17,7 +17,11 @@ function MainPortal() {
         </p>
 
         <div className="portal-options">
-          <a className="portal-option portal-option-primary" href="/rmd">
+          <a className="portal-option portal-option-primary" href="/entrar">
+            <span className="portal-option-label">ENTRAR</span>
+            <span>Acesso direto ao sistema</span>
+          </a>
+          <a className="portal-option" href="/rmd">
             <span className="portal-option-label">RMD</span>
             <span>Administração da plataforma</span>
           </a>
@@ -60,6 +64,7 @@ function AdminApp() {
 
 function App() {
   const path = location.pathname;
+  if (path === '/entrar' || path === '/entrar/') return <AdminApp />;
   if (path.startsWith('/rmd')) return <PlatformAdmin />;
   if (path.startsWith('/convite')) return <ClaimInvite />;
   if (path.startsWith('/admin')) return <AdminApp />;
