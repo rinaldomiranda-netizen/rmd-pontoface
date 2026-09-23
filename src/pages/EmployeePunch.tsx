@@ -1,6 +1,6 @@
 import React from 'react';
 import { FUNCTIONS_BASE as FUNCTIONS } from '../lib/supabaseClient';
-import { loadFaceModels, detectFace, averageEAR } from '../lib/faceEngine';
+import { loadFaceModels, detectFace, detectFaceLandmarks, averageEAR } from '../lib/faceEngine';
 import { usePwaInstall } from '../lib/pwaInstall';
 
 const DB_NAME = 'rmd-pontoface';
@@ -74,13 +74,14 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
   const phaseRef = React.useRef<'loading' | 'camera' | 'centering' | 'blink' | 'captured'>('loading');
   const streamRef = React.useRef<MediaStream | null>(null);
   const centeredFrames = React.useRef(0);
+  const calibrationEars = React.useRef<number[]>([]);
+  const baselineRef = React.useRef(0.28);
   const blinkClosedRef = React.useRef(false);
-  const openEarSumRef = React.useRef(0);
-  const openEarCountRef = React.useRef(0);
-  const openEarRef = React.useRef(0.30);
+  const closedAtRef = React.useRef(0);
   const startedAtRef = React.useRef(0);
   const doneRef = React.useRef(false);
   const lastDetectionAtRef = React.useRef(0);
+  const lastFrameAtRef = React.useRef(0);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -92,7 +93,8 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
 
         const modelsPromise = loadFaceModels();
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user', width: 480, height: 480 }
+          video: { facingMode: 'user', width: { ideal: 480 }, height: { ideal: 480 }, frameRate: { ideal: 24, max: 30 } },
+          audio: false
         });
 
         if (cancelled) {
@@ -113,8 +115,9 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
 
         phaseRef.current = 'centering';
         setPhase('centering');
-        setHint('Centralize seu rosto na câmera.');
+        setHint('Centralize o rosto e mantenha os olhos abertos.');
         startedAtRef.current = Date.now();
+        lastFrameAtRef.current = 0;
         loop();
       } catch {
         onCancel('Não foi possível acessar a câmera. Verifique as permissões do navegador.');
@@ -133,76 +136,107 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
     rafRef.current = requestAnimationFrame(async () => {
       if (doneRef.current) return;
 
+      const now = Date.now();
+      // Evita sobrecarregar celulares lentos: uma análise de rosto por ~120 ms.
+      if (now - lastFrameAtRef.current < 120) {
+        loop();
+        return;
+      }
+      lastFrameAtRef.current = now;
+
       const video = videoRef.current;
 
       try {
         if (video && video.readyState >= 2) {
-          const result = await detectFace(video);
+          const result = await detectFaceLandmarks(video);
 
           if (result) {
             lastDetectionAtRef.current = Date.now();
-            centeredFrames.current += 1;
+            centeredFrames.current = Math.min(30, centeredFrames.current + 1);
 
             const ear = averageEAR(result.landmarks);
 
-            // Aprende automaticamente a abertura normal dos olhos dessa câmera.
-            // Isso evita depender de um valor fixo que varia com aparelho,
-            // distância do rosto, iluminação e formato dos olhos.
-            if (phaseRef.current === 'centering' && Number.isFinite(ear) && ear > 0.16) {
-              openEarSumRef.current += ear;
-              openEarCountRef.current += 1;
-              if (openEarCountRef.current >= 5) {
-                openEarRef.current = openEarSumRef.current / openEarCountRef.current;
+            if (phaseRef.current === 'centering' && Number.isFinite(ear) && ear > 0.15) {
+              calibrationEars.current.push(ear);
+              if (calibrationEars.current.length >= 8) {
+                const values = [...calibrationEars.current].sort((a, b) => a - b);
+                const trimmed = values.slice(2, -2);
+                baselineRef.current = Math.max(
+                  0.18,
+                  trimmed.reduce((sum, value) => sum + value, 0) / Math.max(1, trimmed.length)
+                );
               }
             }
 
-            if (centeredFrames.current >= 6 && phaseRef.current === 'centering') {
+            if (centeredFrames.current >= 10 && phaseRef.current === 'centering') {
               phaseRef.current = 'blink';
               blinkClosedRef.current = false;
+              closedAtRef.current = 0;
               setPhase('blink');
-              setHint('Agora pisque os olhos devagar e abra novamente.');
+              setHint('Agora feche os olhos devagar e abra novamente.');
             }
 
-            if (phaseRef.current === 'blink' && Number.isFinite(ear) && ear > 0.05) {
-              const baseline = Math.max(0.18, openEarRef.current);
-              const closeThreshold = Math.max(0.14, baseline * 0.72);
-              const reopenThreshold = Math.max(0.20, baseline * 0.86);
+            if (phaseRef.current === 'blink' && Number.isFinite(ear)) {
+              const baseline = Math.max(0.18, baselineRef.current);
+              // O fechamento precisa ser claramente menor que a abertura,
+              // mas sem exigir um valor absoluto que varie entre aparelhos.
+              const closeThreshold = Math.max(0.10, baseline * 0.66);
+              const reopenThreshold = Math.max(0.18, baseline * 0.88);
 
-              // Primeiro detecta fechamento; depois exige abertura novamente.
-              if (!blinkClosedRef.current && ear < closeThreshold) {
-                blinkClosedRef.current = true;
-                setHint('Olhos fechados detectados. Abra os olhos.');
-              } else if (blinkClosedRef.current && ear > reopenThreshold) {
-                doneRef.current = true;
-                phaseRef.current = 'captured';
-                setPhase('captured');
-                setHint('Rosto confirmado!');
+              if (!blinkClosedRef.current) {
+                if (ear < closeThreshold) {
+                  blinkClosedRef.current = true;
+                  closedAtRef.current = Date.now();
+                  setHint('Olhos fechados. Agora abra os olhos.');
+                }
+              } else {
+                const closedFor = Date.now() - closedAtRef.current;
+                if (ear > reopenThreshold && closedFor >= 80 && closedFor <= 3000) {
+                  doneRef.current = true;
+                  phaseRef.current = 'captured';
+                  setPhase('captured');
+                  setHint('Piscada confirmada. Confirmando seu rosto...');
 
-                const descriptor = Array.from(result.descriptor);
-                setTimeout(() => onDone({ descriptor }), 250);
-                return;
+                  const final = await detectFace(video);
+                  if (!final) {
+                    doneRef.current = false;
+                    phaseRef.current = 'blink';
+                    setPhase('blink');
+                    setHint('Piscada confirmada, mas perdi o rosto. Mantenha o rosto centralizado.');
+                    loop();
+                    return;
+                  }
+
+                  const descriptor = Array.from(final.descriptor);
+                  setTimeout(() => onDone({ descriptor }), 180);
+                  return;
+                }
+
+                if (closedFor > 3000) {
+                  blinkClosedRef.current = false;
+                  closedAtRef.current = 0;
+                  setHint('Vamos tentar novamente: feche os olhos e abra devagar.');
+                }
               }
             }
-          } else if (Date.now() - lastDetectionAtRef.current > 1200) {
-            centeredFrames.current = Math.max(0, centeredFrames.current - 2);
-
-            if (phaseRef.current !== 'centering') {
-              phaseRef.current = 'centering';
-              setPhase('centering');
+          } else if (Date.now() - lastDetectionAtRef.current > 900) {
+            if (phaseRef.current === 'blink') {
+              // Não zera imediatamente a etapa da piscada por uma perda breve
+              // de detecção, comum em câmeras móveis.
+              setHint('Rosto quase perdido. Centralize novamente.');
+            } else {
+              centeredFrames.current = Math.max(0, centeredFrames.current - 1);
+              setHint('Não estou vendo seu rosto. Centralize na câmera.');
             }
-
-            setHint('Não estou vendo seu rosto. Centralize na câmera.');
           }
         }
       } catch (error) {
         console.debug('liveness frame error', error);
       }
 
-      // 90 segundos dão tempo para o funcionário posicionar o rosto e piscar
-      // sem transformar uma demora momentânea do aparelho em falha.
       if (Date.now() - startedAtRef.current > 90000 && !doneRef.current) {
         doneRef.current = true;
-        onCancel('Não conseguimos confirmar em até 90 segundos. Centralize o rosto e pisque uma vez, fechando e abrindo os olhos.');
+        onCancel('Não conseguimos confirmar a piscada em até 90 segundos. Mantenha o rosto centralizado e feche/abra os olhos uma vez.');
         return;
       }
 
@@ -215,7 +249,7 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
       <div className="brand">RMD <span>PontoFace</span></div>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 20 }}>
         <div style={{ width: 260, height: 260, borderRadius: '50%', overflow: 'hidden', border: '4px solid #2f9e6e', background: '#000' }}>
-          <video ref={videoRef} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
+          <video ref={videoRef} muted playsInline autoPlay style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
         </div>
         <p style={{ color: '#fff', fontSize: 15, textAlign: 'center', maxWidth: 300 }}>{hint}</p>
         <button className="link" style={{ color: '#bbb' }} onClick={() => onCancel('Verificação cancelada.')}>Cancelar</button>
