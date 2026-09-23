@@ -301,3 +301,88 @@ tbody tr:hover{background:rgba(23,107,73,.035);}
 @media(min-width:901px){
   .admin.theme-company .mobile-nav{display:none!important;}
 }
+
+/* ---------- Mobile/tablet containment: no hidden horizontal content ---------- */
+@media(max-width:900px){
+  .admin,
+  .admin-shell,
+  .admin-main,
+  .admin-main > *,
+  .admin.theme-company .card,
+  .admin.theme-company .admin-topbar,
+  .admin.theme-company .company-header{
+    max-width:100%;
+    min-width:0;
+  }
+
+  .admin-main{overflow-x:clip;}
+  .admin-main *{min-width:0;}
+
+  .admin.theme-company .admin-topbar{width:100%;overflow:hidden;}
+  .admin.theme-company .company-header{overflow:hidden;}
+  .admin.theme-company .company-header-name,
+  .admin.theme-company .company-header-section{max-width:100%;}
+
+  /* Jornada and other cards stay inside the viewport instead of creating a sideways scroll. */
+  .admin .card{width:100%;max-width:100%;overflow:hidden;}
+  .admin .card > *{max-width:100%;}
+  .admin .row2,.admin .row3{width:100%;}
+  .admin .field{width:100%;max-width:100%;}
+  .admin .field input,
+  .admin .field select,
+  .admin .field textarea,
+  .admin .btn{max-width:100%;min-width:0;}
+
+  /* Tables such as Jornada become compact, wrapped tables on phones/tablets. */
+  .admin table{
+    width:100%!important;
+    min-width:0!important;
+    max-width:100%!important;
+    table-layout:fixed;
+    font-size:11.5px;
+  }
+  .admin th,
+  .admin td{
+    max-width:0;
+    padding:9px 6px;
+    white-space:normal;
+    overflow-wrap:anywhere;
+    word-break:break-word;
+    vertical-align:top;
+  }
+  .admin th{font-size:9.5px;letter-spacing:.15px;}
+  .admin td button{max-width:100%;white-space:normal;}
+
+  .admin .copylink{width:100%;max-width:100%;flex-wrap:wrap;}
+  .admin .copylink button{max-width:100%;}
+  .admin .helptext,
+  .admin p,
+  .admin h1,
+  .admin h2,
+  .admin h3,
+  .admin label,
+  .admin span,
+  .admin b{overflow-wrap:anywhere;}
+
+  /* Never let long URLs, IDs or code-like values push the layout sideways. */
+  .admin pre,
+  .admin code,
+  .admin a{max-width:100%;overflow-wrap:anywhere;word-break:break-word;}
+
+  /* KPI cards remain visible and aligned even on narrow phones. */
+  .admin.theme-company .kpis{width:100%;max-width:100%;}
+  .admin.theme-company .kpi{min-width:0;overflow:hidden;}
+}
+
+@media(max-width:420px){
+  .admin.theme-company .admin-main{padding-left:9px;padding-right:9px;}
+  .admin.theme-company .admin-topbar{padding:10px;border-radius:15px;gap:7px;}
+  .admin.theme-company .company-header{column-gap:8px;}
+  .admin.theme-company .company-header::before{width:38px;height:38px;border-radius:10px;font-size:17px;}
+  .admin.theme-company .company-header-name{font-size:16px;}
+  .admin.theme-company .company-header-section{font-size:10px;}
+  .admin.theme-company .admin-topbar .btn{padding:8px 9px;font-size:11px;}
+  .admin .card{padding:13px;}
+  .admin th,.admin td{padding:8px 4px;font-size:10.5px;}
+  .admin th{font-size:8.5px;}
+}
