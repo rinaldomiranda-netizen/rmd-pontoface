@@ -4,6 +4,7 @@ import { loadFaceModels, detectFace } from '../lib/faceEngine';
 import { parseCsv, normalizeImportRow } from '../lib/csv';
 import { usePwaInstall } from '../lib/pwaInstall';
 import JSZip from 'jszip';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 
 const ToastContext = React.createContext<(msg: string) => void>(() => {});
 function useToast() { return React.useContext(ToastContext); }
@@ -42,17 +43,34 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
       .then(({ data }) => { if (data) setLabels(data as any); });
   }, [companyId]);
 
+  async function refreshLiveCompany() {
+    try {
+      const [{ data:companyData }, alertResult] = await Promise.all([
+        supabase.from('companies').select('name,person_label,people_label,entry_label,exit_label,exit_enabled').eq('id', companyId).maybeSingle(),
+        supabase.functions.invoke('check-attendance-alerts', { body: { company_id: companyId } })
+      ]);
+      if (companyData) setLabels(companyData as any);
+      if (!alertResult.error && alertResult.data?.ok) setCompanyAlerts(Array.isArray(alertResult.data.alerts) ? alertResult.data.alerts : []);
+    } catch {}
+    window.dispatchEvent(new Event('rmd:company-sync'));
+  }
+
   React.useEffect(() => {
-    async function refreshCompanyAlerts() {
-      try {
-        const { data, error } = await supabase.functions.invoke('check-attendance-alerts', { body: { company_id: companyId } });
-        if (!error && data?.ok) setCompanyAlerts(Array.isArray(data.alerts) ? data.alerts : []);
-      } catch {}
-    }
-    refreshCompanyAlerts();
-    const timer = window.setInterval(refreshCompanyAlerts, 30000);
-    return () => window.clearInterval(timer);
+    refreshLiveCompany();
   }, [companyId]);
+
+  useAutoRefresh(
+    refreshLiveCompany,
+    'company-' + companyId,
+    [
+      { table: 'attendance_records', filter: 'company_id=eq.' + companyId },
+      { table: 'attendance_alerts', filter: 'company_id=eq.' + companyId },
+      { table: 'employees', filter: 'company_id=eq.' + companyId },
+      { table: 'employee_work_schedules', filter: 'company_id=eq.' + companyId },
+      { table: 'work_locations', filter: 'company_id=eq.' + companyId }
+    ],
+    7000
+  );
 
   const navLabel = (s: Section) => s === 'employees' ? labels.people_label : SECTIONS.find(x => x.id === s)?.label;
 
@@ -118,7 +136,12 @@ function Overview({ companyId }: { companyId: string }) {
   const [stats, setStats] = React.useState({ total: 0, working: 0, out: 0, pending: 0, occurrences: 0 });
   const [loading, setLoading] = React.useState(true);
 
-  React.useEffect(() => { load(); }, [companyId]);
+  React.useEffect(() => {
+    load();
+    const sync = () => { void load(); };
+    window.addEventListener('rmd:company-sync', sync);
+    return () => window.removeEventListener('rmd:company-sync', sync);
+  }, [companyId]);
 
   async function load() {
     setLoading(true);
@@ -158,7 +181,12 @@ function Employees({ companyId, role, labels }: { companyId: string; role: strin
   const [enrollFor, setEnrollFor] = React.useState<{ id: string; name: string } | null>(null);
   const canManage = ['owner', 'admin', 'hr'].includes(role);
 
-  React.useEffect(() => { load(); }, [companyId]);
+  React.useEffect(() => {
+    load();
+    const sync = () => { void load(); };
+    window.addEventListener('rmd:company-sync', sync);
+    return () => window.removeEventListener('rmd:company-sync', sync);
+  }, [companyId]);
   async function load() {
     const { data } = await supabase.from('employees').select('id,full_name,registration_code,job_title,department,active,facial_status').eq('company_id', companyId).order('full_name');
     setList(data || []);
@@ -700,7 +728,12 @@ function Locations({ companyId }: { companyId: string }) {
   const [form, setForm] = React.useState({ name: '', address: '', radius_m: '150', latitude: null as number | null, longitude: null as number | null });
   const [gpsBusy, setGpsBusy] = React.useState(false);
 
-  React.useEffect(() => { load(); }, [companyId]);
+  React.useEffect(() => {
+    load();
+    const sync = () => { void load(); };
+    window.addEventListener('rmd:company-sync', sync);
+    return () => window.removeEventListener('rmd:company-sync', sync);
+  }, [companyId]);
   async function load() {
     const { data } = await supabase.from('work_locations').select('id,name,address,radius_m,active,latitude,longitude').eq('company_id', companyId).order('name');
     setList(data || []);
@@ -783,7 +816,12 @@ function Locations({ companyId }: { companyId: string }) {
 function Access({ companyId }: { companyId: string }) {
   const showToast = useToast();
   const [list, setList] = React.useState<any[]>([]);
-  React.useEffect(() => { load(); }, [companyId]);
+  React.useEffect(() => {
+    load();
+    const sync = () => { void load(); };
+    window.addEventListener('rmd:company-sync', sync);
+    return () => window.removeEventListener('rmd:company-sync', sync);
+  }, [companyId]);
   async function load() {
     const { data } = await supabase.from('employee_access').select('id,active,issued_at,revoked_at,last_access_at,employees!inner(id,full_name,company_id)').eq('employees.company_id', companyId).order('issued_at', { ascending: false });
     setList(data || []);
@@ -976,7 +1014,12 @@ function CompanySettings({ companyId, role }: { companyId: string; role: string 
   const [saved, setSaved] = React.useState(false);
   const canEdit = ['owner', 'admin'].includes(role);
 
-  React.useEffect(() => { load(); }, [companyId]);
+  React.useEffect(() => {
+    load();
+    const sync = () => { void load(); };
+    window.addEventListener('rmd:company-sync', sync);
+    return () => window.removeEventListener('rmd:company-sync', sync);
+  }, [companyId]);
   async function load() {
     const { data } = await supabase.from('companies').select('*').eq('id', companyId).single();
     setCompany(data);
