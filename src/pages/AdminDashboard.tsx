@@ -284,11 +284,15 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
       if (!imageResponse.ok) throw new Error('IMAGE_READ_FAILED');
       const blob = await imageResponse.blob();
       if (!blob.size) throw new Error('IMAGE_READ_FAILED');
-      const path = `${employeeId}/reference.jpg`;
-      const { error: uploadError } = await supabase.storage
-        .from('facial-references')
-        .upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
-      if (uploadError) throw new Error('IMAGE_UPLOAD_FAILED');
+      const path = `${employeeId}/reference-${Date.now()}.jpg`;
+      const uploadResult = await Promise.race([
+        supabase.storage
+          .from('facial-references')
+          .upload(path, blob, { contentType: 'image/jpeg' }),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('IMAGE_UPLOAD_TIMEOUT')), 20000))
+      ]);
+      const { error: uploadError } = uploadResult;
+      if (uploadError) throw new Error(`IMAGE_UPLOAD_FAILED: ${uploadError.message}`);
 
       setStatus('Salvando cadastro facial...');
       const res = await callFunction<{ ok?: boolean; error?: string }>('enroll-employee-face', { company_id: companyId, employee_id: employeeId, descriptor, reference_image_path: path });
@@ -296,6 +300,7 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
         setStatus(friendlyError((res.data as any)?.error));
         return;
       }
+      setStatus('Cadastro facial concluído');
       onDone();
     } catch (error) {
       const code = error instanceof Error ? error.message : '';
@@ -303,8 +308,10 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
         setStatus('Análise facial demorou mais que o esperado. Tire outra foto e tente novamente.');
       } else if (code === 'FACE_NOT_FOUND' || code === 'IMAGE_READ_FAILED') {
         setStatus('Não foi possível analisar o rosto da foto. Tente novamente com boa iluminação e olhando diretamente para a câmera.');
-      } else if (code === 'IMAGE_UPLOAD_FAILED') {
-        setStatus('Não foi possível enviar a foto. Tente novamente.');
+      } else if (code === 'IMAGE_UPLOAD_TIMEOUT') {
+        setStatus('O envio da foto demorou mais que o esperado. Tente novamente.');
+      } else if (code.startsWith('IMAGE_UPLOAD_FAILED:')) {
+        setStatus(`Não foi possível enviar a foto: ${error instanceof Error ? error.message.replace('IMAGE_UPLOAD_FAILED: ', '') : 'erro desconhecido.'}`);
       } else {
         setStatus('Não foi possível concluir o cadastro facial. Tente novamente.');
       }
