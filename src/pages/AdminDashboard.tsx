@@ -99,7 +99,10 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
         <main className="admin-main">
           <div className="admin-topbar">
             {section !== 'overview' && <button className="btn light back-btn" onClick={() => setSection('overview')}>← Voltar</button>}
-            <h1>{navLabel(section)}</h1>
+            <div className="company-header">
+    <div className="company-header-name">{labels.name || 'Minha Empresa'}</div>
+    <div className="company-header-section">{navLabel(section)}</div>
+  </div>
             {!pwa.installed && pwa.canInstall && <button className="btn light" onClick={pwa.install}>Instalar aplicativo</button>}
             <button className="btn light" onClick={onLogout}>Sair</button>
           </div>
