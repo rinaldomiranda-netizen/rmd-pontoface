@@ -16,30 +16,23 @@
     (function () {
       var p = window.location.pathname;
       var isEmployee = p.indexOf('/funcionario/') === 0 || p === '/funcionario';
+      var isCompany = p.indexOf('/admin') === 0;
+      var isRmd = p.indexOf('/rmd') === 0;
       var manifest = isEmployee
         ? '/manifest-funcionario.webmanifest'
-        : p.indexOf('/admin') === 0
+        : isCompany
           ? '/manifest-empresa.webmanifest'
-          : p.indexOf('/rmd') === 0
+          : isRmd
             ? '/manifest-rmd.webmanifest'
             : '/manifest.webmanifest';
       var link = document.getElementById('app-manifest');
       if (link) link.href = manifest;
 
-      // Preserve the employee's individual link when the installed PWA opens
-      // at the generic /funcionario/ start URL.
-      if (isEmployee && p !== '/funcionario/' && p !== '/funcionario') {
-        try { localStorage.setItem('rmd_employee_start_url', location.href); } catch (_) {}
-      }
-      if ((p === '/funcionario/' || p === '/funcionario') && !location.search) {
-        try {
-          var saved = localStorage.getItem('rmd_employee_start_url');
-          if (saved && saved !== location.href) location.replace(saved);
-        } catch (_) {}
-      }
+      // Never redirect one installed area into another. In particular, do not
+      // use a previously visited employee link as a global startup redirect.
+      // Each PWA is identified by its own manifest/start_url/scope.
+      try { localStorage.removeItem('rmd_employee_start_url'); } catch (_) {}
 
-      // Employee install button is injected before React so it works even if
-      // the employee screen is a deep link. RMD and Company keep their own UI.
       if (isEmployee) {
         window.__rmdEmployeeInstall = null;
         window.addEventListener('beforeinstallprompt', function (event) {
