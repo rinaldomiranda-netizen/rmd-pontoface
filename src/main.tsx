@@ -20,8 +20,8 @@ function installDynamicManifest() {
       background_color: '#f3f6f4',
       theme_color: '#102f24',
       icons: [
-        { src: new URL('/icon-192.png', origin).toString(), sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
-        { src: new URL('/icon-512.png', origin).toString(), sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+        { src: new URL('/icon-192.svg', origin).toString(), sizes: '192x192', type: 'image/svg+xml', purpose: 'any maskable' },
+        { src: new URL('/icon-512.svg', origin).toString(), sizes: '512x512', type: 'image/svg+xml', purpose: 'any maskable' }
       ]
     };
     const blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
