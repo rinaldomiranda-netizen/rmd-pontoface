@@ -1,6 +1,7 @@
 import React from 'react';
 import { supabase, callFunction } from '../lib/supabaseClient';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { usePwaInstall } from '../lib/pwaInstall';
 
 type Company = {
   id: string; name: string; active: boolean; created_at: string;
@@ -8,6 +9,7 @@ type Company = {
 };
 
 export default function PlatformAdmin() {
+  const pwa = usePwaInstall('/rmd');
   const [session, setSession] = React.useState<'checking' | 'login' | 'forbidden' | 'ok'>('checking');
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
@@ -113,8 +115,10 @@ export default function PlatformAdmin() {
       <div className="admin-main" style={{ maxWidth: 900, margin: '0 auto' }}>
         <div className="admin-topbar">
           <h1>RMD — Empresas clientes</h1>
+          {!pwa.installed && pwa.canInstall && <button className="btn light" onClick={pwa.install}>Instalar aplicativo</button>}
           <button className="btn light" onClick={logout}>Sair</button>
         </div>
+        {pwa.showIosHint && <div className="fallback"><p style={{ margin: 0 }}>No iPhone ou iPad: toque em <b>Compartilhar</b> e depois em <b>"Adicionar à Tela de Início"</b>.</p><button className="link" onClick={() => pwa.setShowIosHint(false)}>Entendi</button></div>}
 
         <div className="card">
           <h2>Nova empresa cliente</h2>
