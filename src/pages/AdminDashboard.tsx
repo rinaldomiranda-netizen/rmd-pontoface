@@ -533,7 +533,8 @@ function Attendance({ companyId }: { companyId: string }) {
   const byEmployee = React.useMemo(() => {
     const map = new Map<string, any>();
     for (const e of employees) {
-      const todaySchedule = schedules.find((s:any)=>s.employee_id===e.id && Number(s.weekday)===new Date(date+'T12:00:00').getDay() ? true : false);
+      const selectedWeekday = new Date(date + 'T12:00:00').getDay() || 7;
+      const todaySchedule = schedules.find((s:any)=>s.employee_id===e.id && Number(s.weekday)===selectedWeekday);
       map.set(e.id, { employee: e, rows: [], alerts: [], totalBalance: 0, schedule: todaySchedule });
     }
     for (const r of rows) {
