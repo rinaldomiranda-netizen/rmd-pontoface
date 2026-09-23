@@ -1,7 +1,6 @@
 import React from 'react';
 import { FUNCTIONS_BASE as FUNCTIONS } from '../lib/supabaseClient';
 import { loadFaceModels, detectFace } from '../lib/faceEngine';
-import { loadMediaPipeFaceLandmarker, detectBlinkFrame } from '../lib/mediaPipeFace';
 import { usePwaInstall } from '../lib/pwaInstall';
 
 const DB_NAME = 'rmd-pontoface';
@@ -69,19 +68,16 @@ type LivenessOutcome = { descriptor: number[] };
 
 function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) => void; onCancel: (msg: string) => void }) {
   const videoRef = React.useRef<HTMLVideoElement>(null);
-  const [phase, setPhase] = React.useState<'loading' | 'camera' | 'ready' | 'blink' | 'captured'>('loading');
-  const [hint, setHint] = React.useState('Preparando a câmera...');
+  const [phase, setPhase] = React.useState<'loading' | 'camera' | 'ready' | 'captured'>('loading');
+  const [hint, setHint] = React.useState('Preparando o reconhecimento facial...');
   const rafRef = React.useRef<number | null>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
-  const landmarkerRef = React.useRef<any>(null);
   const doneRef = React.useRef(false);
   const startedAtRef = React.useRef(0);
-  const lastDetectAtRef = React.useRef(0);
-  const lastTimestampRef = React.useRef(0);
-  const faceFramesRef = React.useRef(0);
-  const eyesOpenFramesRef = React.useRef(0);
-  const blinkStartedAtRef = React.useRef(0);
-  const blinkSeenRef = React.useRef(false);
+  const lastFrameAtRef = React.useRef(0);
+  const stableFramesRef = React.useRef(0);
+  const descriptorsRef = React.useRef<number[][]>([]);
+  const runningRef = React.useRef(false);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -91,17 +87,14 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
         setPhase('camera');
         setHint('Ligando a câmera...');
 
-        const [landmarker, _faceModels] = await Promise.all([
-          loadMediaPipeFaceLandmarker(),
-          loadFaceModels(),
-        ]);
+        await loadFaceModels();
 
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: 'user' },
             width: { ideal: 640 },
             height: { ideal: 480 },
-            frameRate: { ideal: 30, max: 30 },
+            frameRate: { ideal: 24, max: 30 },
           },
           audio: false,
         });
@@ -111,10 +104,9 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
           return;
         }
 
-        landmarkerRef.current = landmarker;
         streamRef.current = stream;
-
         const video = videoRef.current;
+
         if (!video) {
           stream.getTracks().forEach(t => t.stop());
           onCancel('Não foi possível iniciar a câmera.');
@@ -127,12 +119,13 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
         if (cancelled) return;
 
         setPhase('ready');
-        setHint('Olhe para a câmera e mantenha os olhos abertos.');
+        setHint('Olhe para a câmera. Mantenha o rosto centralizado; o reconhecimento será automático.');
         startedAtRef.current = Date.now();
+        lastFrameAtRef.current = 0;
         loop();
       } catch (error) {
-        console.error('liveness init error', error);
-        onCancel('Não foi possível iniciar o reconhecimento facial. Verifique a permissão da câmera e tente novamente.');
+        console.error('face recognition init error', error);
+        onCancel('Não foi possível iniciar o reconhecimento facial. Verifique a permissão da câmera.');
       }
     })();
 
@@ -145,115 +138,116 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function finishBlink() {
+  function averageDescriptor(items: number[][]): number[] {
+    if (!items.length) return [];
+    const len = items[0].length;
+    const out = new Array<number>(len).fill(0);
+    for (const item of items) {
+      for (let i = 0; i < len; i++) out[i] += item[i];
+    }
+    for (let i = 0; i < len; i++) out[i] /= items.length;
+
+    // Normaliza o vetor para manter o mesmo padrão do descritor do face-api.
+    const norm = Math.sqrt(out.reduce((sum, v) => sum + v * v, 0));
+    if (norm > 0) for (let i = 0; i < len; i++) out[i] /= norm;
+    return out;
+  }
+
+  async function finish() {
     if (doneRef.current) return;
     const video = videoRef.current;
     if (!video) return;
 
+    const final = await detectFace(video);
+    if (!final) {
+      stableFramesRef.current = 0;
+      descriptorsRef.current = [];
+      setHint('Rosto detectado, mas saiu do enquadramento. Centralize novamente.');
+      loop();
+      return;
+    }
+
+    const samples = [...descriptorsRef.current, Array.from(final.descriptor)].slice(-5);
+    const descriptor = averageDescriptor(samples);
+
+    if (descriptor.length !== 128) {
+      stableFramesRef.current = 0;
+      descriptorsRef.current = [];
+      setHint('Não consegui capturar o rosto. Olhe diretamente para a câmera.');
+      loop();
+      return;
+    }
+
     doneRef.current = true;
     setPhase('captured');
-    setHint('Piscada confirmada. Reconhecendo seu rosto...');
+    setHint('Rosto capturado. Confirmando sua identidade...');
 
-    try {
-      // A detecção completa só acontece aqui; durante a piscada usamos
-      // MediaPipe, que é mais apropriado para rastreamento facial em vídeo.
-      const final = await detectFace(video);
-      if (!final) {
-        doneRef.current = false;
-        setPhase('blink');
-        setHint('Piscada detectada, mas o rosto saiu do enquadramento. Olhe novamente para a câmera.');
-        blinkSeenRef.current = false;
-        blinkStartedAtRef.current = 0;
-        loop();
-        return;
-      }
-
-      setTimeout(() => onDone({ descriptor: Array.from(final.descriptor) }), 120);
-    } catch (error) {
-      console.error('final face recognition error', error);
-      doneRef.current = false;
-      setPhase('blink');
-      setHint('Não consegui concluir o reconhecimento. Mantenha o rosto centralizado e pisque novamente.');
-      loop();
-    }
+    setTimeout(() => onDone({ descriptor }), 120);
   }
 
   function loop() {
     rafRef.current = requestAnimationFrame(async () => {
-      if (doneRef.current) return;
+      if (doneRef.current || runningRef.current) return;
 
-      const video = videoRef.current;
-      const landmarker = landmarkerRef.current;
+      const now = Date.now();
+      if (now - lastFrameAtRef.current < 220) {
+        loop();
+        return;
+      }
+      lastFrameAtRef.current = now;
+      runningRef.current = true;
 
       try {
-        if (video && video.readyState >= 2 && landmarker) {
-          const now = performance.now();
-          const timestampMs = Math.max(now, lastTimestampRef.current + 1);
-          lastTimestampRef.current = timestampMs;
-          const result = detectBlinkFrame(landmarker, video, timestampMs);
+        const video = videoRef.current;
+
+        if (video && video.readyState >= 2) {
+          const result = await detectFace(video);
 
           if (result) {
-            lastDetectAtRef.current = Date.now();
-            faceFramesRef.current = Math.min(20, faceFramesRef.current + 1);
+            const box = result.box;
+            const vw = video.videoWidth || 640;
+            const vh = video.videoHeight || 480;
+            const cx = box.x + box.width / 2;
+            const cy = box.y + box.height / 2;
 
-            if (faceFramesRef.current >= 3 && phase !== 'blink' && phase !== 'captured') {
-              setPhase('blink');
-              setHint('Agora pisque uma vez. Feche e abra os olhos normalmente.');
-            }
+            const centered =
+              box.width >= vw * 0.16 &&
+              box.width <= vw * 0.80 &&
+              Math.abs(cx - vw / 2) <= vw * 0.22 &&
+              Math.abs(cy - vh / 2) <= vh * 0.24;
 
-            const score = result.blinkScore;
+            if (centered) {
+              stableFramesRef.current = Math.min(10, stableFramesRef.current + 1);
+              descriptorsRef.current.push(Array.from(result.descriptor));
+              if (descriptorsRef.current.length > 5) descriptorsRef.current.shift();
 
-            // Máquina de estados correta:
-            // 1) confirma olhos abertos;
-            // 2) detecta fechamento;
-            // 3) detecta reabertura.
-            // O código anterior tentava confirmar abertura e fechamento
-            // no mesmo quadro, tornando a piscada impossível de concluir.
-            if (!blinkSeenRef.current) {
-              if (score < 0.30) {
-                eyesOpenFramesRef.current = Math.min(10, eyesOpenFramesRef.current + 1);
+              if (stableFramesRef.current < 3) {
+                setHint('Rosto encontrado. Mantenha-se parado por um instante...');
+              } else if (stableFramesRef.current < 5) {
+                setHint('Reconhecendo seu rosto...');
               } else {
-                eyesOpenFramesRef.current = Math.max(0, eyesOpenFramesRef.current - 1);
-              }
-
-              if (eyesOpenFramesRef.current >= 3 && score >= 0.42) {
-                blinkSeenRef.current = true;
-                blinkStartedAtRef.current = Date.now();
-                setHint('Piscada detectada. Abra os olhos.');
-              }
-            } else {
-              const elapsed = Date.now() - blinkStartedAtRef.current;
-
-              // Depois do fechamento, esperamos a reabertura.
-              if (score < 0.30 && elapsed >= 80 && elapsed <= 3000) {
-                await finishBlink();
+                await finish();
                 return;
               }
-
-              if (elapsed > 3500) {
-                blinkSeenRef.current = false;
-                blinkStartedAtRef.current = 0;
-                eyesOpenFramesRef.current = 0;
-                setHint('Tente novamente: mantenha os olhos abertos e pisque uma vez.');
-              }
+            } else {
+              stableFramesRef.current = Math.max(0, stableFramesRef.current - 1);
+              setHint('Centralize o rosto dentro do enquadramento.');
             }
-          } else if (Date.now() - lastDetectAtRef.current > 1200) {
-            faceFramesRef.current = Math.max(0, faceFramesRef.current - 2);
-            blinkSeenRef.current = false;
-            eyesOpenFramesRef.current = 0;
-            setPhase('ready');
-            setHint('Não estou vendo seu rosto. Aproxime-se e centralize o rosto.');
+          } else {
+            stableFramesRef.current = Math.max(0, stableFramesRef.current - 1);
+            setHint('Não estou vendo seu rosto. Aproxime-se e olhe para a câmera.');
           }
         }
       } catch (error) {
-        console.debug('liveness frame error', error);
+        console.debug('face recognition frame error', error);
+        setHint('Ajustando a câmera... mantenha o rosto centralizado.');
+      } finally {
+        runningRef.current = false;
       }
 
-      // Não deixa o funcionário ficar preso indefinidamente.
-      // Uma nova tentativa pode ser feita em poucos segundos.
-      if (Date.now() - startedAtRef.current > 25000 && !doneRef.current) {
+      if (Date.now() - startedAtRef.current > 20000 && !doneRef.current) {
         doneRef.current = true;
-        onCancel('Não conseguimos confirmar a piscada. Tente novamente com o rosto bem iluminado e centralizado.');
+        onCancel('Não conseguimos localizar seu rosto. Tente novamente com boa iluminação e o rosto centralizado.');
         return;
       }
 
