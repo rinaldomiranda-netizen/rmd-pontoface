@@ -344,9 +344,9 @@ function EmployeePunch() {
   const autoPresenceTriggeredRef = React.useRef(false);
 
   React.useEffect(() => {
-    const mode = labels.presence_mode || (labels.exit_enabled === false ? 'entry' : 'both');
+    const configuredMode = labels.presence_mode || (labels.exit_enabled === false ? 'entry' : 'both');
     const todayDate = dashboard?.today?.date || '';
-    if (!todayDate || mode !== 'entry' || !dashboard || !navigator.onLine) return;
+    if (!todayDate || configuredMode !== 'entry' || !dashboard || !navigator.onLine) return;
 
     if (autoPresenceDateRef.current !== todayDate) {
       autoPresenceDateRef.current = todayDate;
