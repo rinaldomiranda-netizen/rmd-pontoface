@@ -596,6 +596,7 @@ function EmployeePunch() {
                   <td>{h.punch_type === 'entry' ? 'Entrada' : 'Saída'}</td>
                   <td>
                     {h.location_label || h.location_address || 'Local não identificado'}
+                    {(h.location_address || h.location_label) && <div><a href={'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(h.location_address || h.location_label)} target="_blank" rel="noreferrer" className="helptext">Abrir no mapa</a></div>}
                     {h.location_status === 'inside' && <div className="helptext">Dentro do local autorizado{h.location_distance_m != null ? ' • ' + Math.round(h.location_distance_m) + 'm' : ''}</div>}
                     {h.location_status === 'outside' && <div className="helptext" style={{ color: 'var(--danger)' }}>Fora do raio autorizado{h.location_distance_m != null ? ' • ' + Math.round(h.location_distance_m) + 'm' : ''}</div>}
                   </td>
