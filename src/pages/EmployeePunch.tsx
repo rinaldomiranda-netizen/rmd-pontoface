@@ -23,8 +23,6 @@ type Punch = {
   liveness_status: 'offline_pending' | 'passed' | 'failed';
   descriptor?: number[];
   sync_status: 'pending' | 'syncing' | 'synced' | 'expired';
-  location_label?: string | null;
-  location_address?: string | null;
 };
 
 function openDb(): Promise<IDBDatabase> {
@@ -284,9 +282,6 @@ function EmployeePunch() {
   const [selectedPunch, setSelectedPunch] = React.useState<Punch | null>(null);
   const [documentDigits, setDocumentDigits] = React.useState('');
   const [labels, setLabels] = React.useState({ name: 'RMD PontoFace', person_label: 'Funcionário', entry_label: 'Bater entrada', exit_label: 'Bater saída', exit_enabled: true });
-  const [dashboard, setDashboard] = React.useState<any>(null);
-  const [activeAlert, setActiveAlert] = React.useState<any>(null);
-  const seenAlertIdsRef = React.useRef<Set<string>>(new Set());
   const pwa = usePwaInstall(`${location.pathname}${location.search}`);
 
   React.useEffect(() => {
@@ -339,124 +334,22 @@ function EmployeePunch() {
     return () => { cancelled = true; };
   }, [companyId, employeeId, token]);
   React.useEffect(() => {
-    const on = () => { setOnline(true); refreshQueue(); refreshEmployeeDashboard(); };
+    const on = () => { setOnline(true); refreshQueue(); };
     const off = () => setOnline(false);
-    addEventListener('online', on);
-    addEventListener('offline', off);
+    addEventListener('online', on); addEventListener('offline', off);
     refreshQueue();
-    refreshEmployeeDashboard();
-    const timer = window.setInterval(refreshEmployeeDashboard, 30000);
-    return () => {
-      removeEventListener('online', on);
-      removeEventListener('offline', off);
-      window.clearInterval(timer);
-    };
-  }, [companyId, employeeId, token]);
+    return () => { removeEventListener('online', on); removeEventListener('offline', off); };
+  }, []);
 
   async function refreshQueue() { setPending(await queueAll()); }
 
-  async function refreshEmployeeDashboard() {
-    if (!token || !employeeId || !companyId) return;
-    try {
-      const response = await fetch(FUNCTIONS + '/get-employee-dashboard', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-employee-access-token': token },
-        body: JSON.stringify({ company_id: companyId, employee_id: employeeId })
-      });
-      const data = await response.json().catch(() => null);
-      if (!response.ok || !data) return;
-      setDashboard(data);
-      const alerts = Array.isArray(data.alerts) ? data.alerts : [];
-      const newest = alerts.find((a: any) => !seenAlertIdsRef.current.has(a.id));
-      if (newest) {
-        seenAlertIdsRef.current.add(newest.id);
-        setActiveAlert(newest);
-        try { navigator.vibrate?.([250, 120, 250]); } catch {}
-        try {
-          const AC = (window.AudioContext || (window as any).webkitAudioContext);
-          if (AC) {
-            const audio = new AC();
-            const osc = audio.createOscillator();
-            const gain = audio.createGain();
-            osc.frequency.value = 880;
-            gain.gain.value = 0.06;
-            osc.connect(gain);
-            gain.connect(audio.destination);
-            osc.start();
-            window.setTimeout(() => { osc.stop(); audio.close(); }, 260);
-          }
-        } catch {}
-      }
-    } catch {}
-  }
-
-  async function reverseGeocode(latitude: number, longitude: number): Promise<{ label: string | null; address: string | null }> {
-    try {
-      const url = 'https://photon.komoot.io/reverse?lang=pt&limit=1&lon=' + encodeURIComponent(String(longitude)) + '&lat=' + encodeURIComponent(String(latitude));
-      const r = await fetch(url, { headers: { Accept: 'application/json' } });
-      if (!r.ok) return { label: null, address: null };
-      const data = await r.json();
-      const p = data?.features?.[0]?.properties || {};
-      const street = [p.street, p.housenumber].filter(Boolean).join(', ');
-      const neighborhood = p.suburb || p.district || p.locality || '';
-      const city = p.city || p.town || p.village || '';
-      const state = p.state || '';
-      const parts = [street, neighborhood, city, state].filter(Boolean);
-      return { label: street || neighborhood || city || null, address: parts.length ? parts.join(' — ') : null };
-    } catch {
-      return { label: null, address: null };
-    }
-  }
-
-  async function reverseGeocode(latitude: number, longitude: number): Promise<{ label: string | null; address: string | null }> {
-    try {
-      const url = 'https://photon.komoot.io/reverse?lang=pt&limit=1&lon=' + encodeURIComponent(String(longitude)) + '&lat=' + encodeURIComponent(String(latitude));
-      const r = await fetch(url, { headers: { Accept: 'application/json' } });
-      if (!r.ok) return { label: null, address: null };
-      const data = await r.json();
-      const p = data?.features?.[0]?.properties || {};
-      const street = [p.street, p.housenumber].filter(Boolean).join(', ');
-      const neighborhood = p.suburb || p.district || p.locality || '';
-      const city = p.city || p.town || p.village || '';
-      const state = p.state || '';
-      const parts = [street, neighborhood, city, state].filter(Boolean);
-      return { label: street || neighborhood || city || null, address: parts.length ? parts.join(' — ') : null };
-    } catch {
-      return { label: null, address: null };
-    }
-  }
-
-  async function getGeolocation(): Promise<{ latitude: number | null; longitude: number | null; accuracy: number | null; location_label: string | null; location_address: string | null }> {
-    const empty = { latitude: null, longitude: null, accuracy: null, location_label: null, location_address: null };
-    if (!navigator.geolocation) return empty;
-    const position = await new Promise<GeolocationPosition | null>(resolve => {
-      let best: GeolocationPosition | null = null;
-      let finished = false;
-      let timer: number | null = null;
-      let watchId: number | null = null;
-      const finish = () => {
-        if (finished) return;
-        finished = true;
-        if (timer) window.clearTimeout(timer);
-        if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-        resolve(best);
-      };
-      watchId = navigator.geolocation.watchPosition(
-        p => {
-          if (!best || p.coords.accuracy < best.coords.accuracy) best = p;
-          if (p.coords.accuracy != null && p.coords.accuracy <= 25) window.setTimeout(finish, 450);
-        },
-        () => finish(),
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 12000 }
-      );
-      timer = window.setTimeout(finish, 6500);
-    });
-    if (!position) return empty;
-    const latitude = position.coords.latitude;
-    const longitude = position.coords.longitude;
-    const accuracy = position.coords.accuracy;
-    const place = await reverseGeocode(latitude, longitude);
-    return { latitude, longitude, accuracy, location_label: place.label, location_address: place.address };
+  async function getGeolocation(): Promise<{ latitude: number | null; longitude: number | null; accuracy: number | null }> {
+    if (!navigator.geolocation) return { latitude: null, longitude: null, accuracy: null };
+    return new Promise(resolve => navigator.geolocation.getCurrentPosition(
+      p => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy }),
+      () => resolve({ latitude: null, longitude: null, accuracy: null }),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    ));
   }
 
   function basePunch(type: 'entry' | 'exit'): Punch {
@@ -477,12 +370,9 @@ function EmployeePunch() {
       setMessage('Link do funcionário incompleto. Gere novamente o acesso no painel da empresa.');
       return;
     }
-    setMessage('Obtendo localização precisa...');
     const geo = await getGeolocation();
     const p = basePunch(type);
     p.latitude = geo.latitude; p.longitude = geo.longitude; p.location_accuracy_m = geo.accuracy;
-    p.location_label = geo.location_label;
-    p.location_address = geo.location_address;
     setSelectedPunch(p);
     if (!navigator.onLine) {
       await queuePut(p); await refreshQueue();
@@ -504,7 +394,6 @@ function EmployeePunch() {
           punch_type: punch.punch_type, occurred_at: punch.occurred_at,
           idempotency_key: punch.idempotency_key, client_event_id: punch.client_event_id,
           latitude: punch.latitude, longitude: punch.longitude, location_accuracy_m: punch.location_accuracy_m,
-          location_label: punch.location_label, location_address: punch.location_address,
           client_captured_at: punch.client_captured_at, client_timezone: punch.client_timezone, offline: false,
           liveness_passed: true, descriptor: result.descriptor
         })
@@ -512,7 +401,6 @@ function EmployeePunch() {
       const data = await r.json();
       if (r.ok && data.approved) {
         setMessage(`Ponto confirmado às ${new Date(punch.occurred_at).toLocaleTimeString('pt-BR')}.`);
-        await refreshEmployeeDashboard();
       } else if (data.reason === 'face_not_matched') {
         setMessage('O rosto não corresponde ao cadastro. Tente novamente, com boa iluminação.');
       } else if (data.error === 'facial_profile_not_enrolled') {
@@ -572,61 +460,6 @@ function EmployeePunch() {
         <button className="primary" onClick={documentFallback}>Continuar</button>
       </div>}
       {pending.length > 0 && <div className="pending"><b>{pending.length} registro(s) aguardando sincronização</b><small>O sistema mantém o horário e a localização originais.</small></div>}
-      {activeAlert && (
-        <div className="notice" style={{ marginTop: 16, border: '2px solid #e1a33a', background: '#fff8df' }}>
-          <b>Atenção ao horário</b>
-          <div style={{ marginTop: 5 }}>{activeAlert.message}</div>
-          {activeAlert.alert_type !== 'missing_entry' && <div style={{ marginTop: 4, fontWeight: 800 }}>{Number(activeAlert.minutes_delta) > 0 ? '+' : ''}{Math.round(activeAlert.minutes_delta)} minutos</div>}
-          <button className="link" onClick={() => setActiveAlert(null)}>Entendi</button>
-        </div>
-      )}
-
-      {dashboard?.today && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <h2>Resumo de hoje</h2>
-          {dashboard.today.schedule ? (
-            <>
-              <div className="helptext">
-                Jornada: {dashboard.today.schedule.entry_time?.slice(0,5)} às {dashboard.today.schedule.exit_time?.slice(0,5)}
-                {dashboard.today.schedule.break_start_time && dashboard.today.schedule.break_end_time
-                  ? ' • intervalo ' + dashboard.today.schedule.break_start_time.slice(0,5) + '–' + dashboard.today.schedule.break_end_time.slice(0,5)
-                  : ''}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginTop: 10 }}>
-                <div className="kpi"><small>Trabalhado</small><b>{dashboard.today.worked ?? 0} min</b></div>
-                <div className="kpi"><small>Saldo</small><b style={{ color: Number(dashboard.today.balance) < 0 ? 'var(--danger)' : 'var(--brand-2)' }}>{dashboard.today.balance == null ? '—' : (Number(dashboard.today.balance) > 0 ? '+' : '') + Math.round(dashboard.today.balance) + ' min'}</b></div>
-                <div className="kpi"><small>Status</small><b style={{ fontSize: 15 }}>{dashboard.today.status === 'late_entry' ? 'Atraso' : dashboard.today.status === 'early_exit' ? 'Saída antecipada' : dashboard.today.status === 'overtime' ? 'Hora extra' : dashboard.today.status === 'day_off' ? 'Folga' : 'Normal'}</b></div>
-              </div>
-            </>
-          ) : <div className="helptext">Hoje está configurado como folga ou ainda não há jornada cadastrada.</div>}
-        </div>
-      )}
-
-      {dashboard?.history?.length > 0 && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <h2>Histórico de pontos</h2>
-          <table style={{ minWidth: 0 }}>
-            <thead><tr><th>Data</th><th>Tipo</th><th>Local</th><th>Precisão</th><th>Saldo</th></tr></thead>
-            <tbody>
-              {dashboard.history.map((h: any) => (
-                <tr key={h.id}>
-                  <td>{new Date(h.occurred_at).toLocaleString('pt-BR')}</td>
-                  <td>{h.punch_type === 'entry' ? 'Entrada' : 'Saída'}</td>
-                  <td>
-                    {h.location_label || h.location_address || 'Local não identificado'}
-                    {(h.location_address || h.location_label) && <div><a href={'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(h.location_address || h.location_label)} target="_blank" rel="noreferrer" className="helptext">Abrir no mapa</a></div>}
-                    {h.location_status === 'inside' && <div className="helptext">Dentro do local autorizado{h.location_distance_m != null ? ' • ' + Math.round(h.location_distance_m) + 'm' : ''}</div>}
-                    {h.location_status === 'outside' && <div className="helptext" style={{ color: 'var(--danger)' }}>Fora do raio autorizado{h.location_distance_m != null ? ' • ' + Math.round(h.location_distance_m) + 'm' : ''}</div>}
-                  </td>
-                  <td>{h.location_accuracy_m != null ? '±' + Math.round(h.location_accuracy_m) + 'm' : '—'}</td>
-                  <td style={{ color: Number(h.balance_minutes) < 0 ? 'var(--danger)' : 'var(--brand-2)', fontWeight: 800 }}>{h.balance_minutes == null ? '—' : (Number(h.balance_minutes) > 0 ? '+' : '') + Math.round(h.balance_minutes) + ' min'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
       <div className="privacy">A localização é capturada no momento da marcação. O sistema não faz rastreamento contínuo.</div>
     </main>
   </div>;
