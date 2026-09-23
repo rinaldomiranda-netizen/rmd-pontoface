@@ -2,6 +2,7 @@ import React from 'react';
 import { FUNCTIONS_BASE as FUNCTIONS } from '../lib/supabaseClient';
 import { loadFaceModels, detectFace } from '../lib/faceEngine';
 import { usePwaInstall } from '../lib/pwaInstall';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 
 const DB_NAME = 'rmd-pontoface';
 const STORE = 'attendance_queue';
@@ -366,14 +367,19 @@ function EmployeePunch() {
     addEventListener('online', on); addEventListener('offline', off);
     refreshQueue();
     refreshEmployeeDashboard();
-    const timer = window.setInterval(refreshEmployeeDashboard, 30000);
-    return () => {
-      removeEventListener('online', on); removeEventListener('offline', off);
-      window.clearInterval(timer);
-    };
   }, [companyId, employeeId, token]);
 
   async function refreshQueue() { setPending(await queueAll()); }
+
+  useAutoRefresh(
+    refreshEmployeeDashboard,
+    'employee-' + employeeId,
+    [
+      { table: 'attendance_records', filter: 'employee_id=eq.' + employeeId },
+      { table: 'attendance_alerts', filter: 'employee_id=eq.' + employeeId }
+    ],
+    7000
+  );
 
   async function reverseGeocode(latitude: number, longitude: number): Promise<{ label: string | null; address: string | null }> {
     try {
