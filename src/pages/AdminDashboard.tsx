@@ -10,7 +10,7 @@ function useToast() { return React.useContext(ToastContext); }
 
 type Props = { companyId: string; role: string; onLogout: () => void };
 
-type Section = 'overview' | 'employees' | 'attendance' | 'locations' | 'access' | 'import' | 'company' | 'audit';
+type Section = 'overview' | 'employees' | 'attendance' | 'locations' | 'access' | 'import' | 'schedule' | 'company' | 'audit';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'overview', label: 'Dashboard' },
@@ -19,6 +19,7 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: 'locations', label: 'Localizações' },
   { id: 'access', label: 'Acessos' },
   { id: 'import', label: 'Importar' },
+  { id: 'schedule', label: 'Jornada' },
   { id: 'company', label: 'Empresa' },
   { id: 'audit', label: 'Auditoria' },
 ];
@@ -85,7 +86,7 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
               <h2 style={{ marginBottom: 8 }}>Alertas de jornada</h2>
               {companyAlerts.slice(0, 5).map((a: any) => (
                 <div key={a.id} style={{ padding: '9px 0', borderBottom: '1px solid #ead99c' }}>
-                  <b>{a.employees?.full_name || 'Funcionário'}</b>
+                  <b>{a.employees?.full_name || a.employee_name_snapshot || 'Funcionário'}</b>
                   <div style={{ marginTop: 3 }}>{a.message}</div>
                   {a.minutes_delta != null && <div className={Number(a.minutes_delta) < 0 ? 'tag danger' : 'tag warn'} style={{ marginTop: 4 }}>
                     {Number(a.minutes_delta) > 0 ? '+' : ''}{Math.round(Number(a.minutes_delta))} min
@@ -101,6 +102,7 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
           {section === 'locations' && <Locations companyId={companyId} />}
           {section === 'access' && <Access companyId={companyId} />}
           {section === 'import' && <BulkImport companyId={companyId} labels={labels} />}
+          {section === 'schedule' && <Schedules companyId={companyId} />}
           {section === 'company' && <CompanySettings companyId={companyId} role={role} />}
           {section === 'audit' && <Audit companyId={companyId} />}
         </main>
@@ -546,19 +548,20 @@ function Attendance({ companyId }: { companyId: string }) {
 function Locations({ companyId }: { companyId: string }) {
   const showToast = useToast();
   const [list, setList] = React.useState<any[]>([]);
-  const [form, setForm] = React.useState({ name: '', address: '', radius_m: '150' });
+  const [form, setForm] = React.useState({ name: '', address: '', radius_m: '150', latitude: null as number | null, longitude: null as number | null });
+  const [gpsBusy, setGpsBusy] = React.useState(false);
 
   React.useEffect(() => { load(); }, [companyId]);
   async function load() {
-    const { data } = await supabase.from('work_locations').select('id,name,address,radius_m,active').eq('company_id', companyId).order('name');
+    const { data } = await supabase.from('work_locations').select('id,name,address,radius_m,active,latitude,longitude').eq('company_id', companyId).order('name');
     setList(data || []);
   }
   async function add(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name.trim()) return;
-    const res = await callFunction('admin-mutate', { table: 'work_locations', action: 'insert', company_id: companyId, payload: { name: form.name.trim(), address: form.address.trim() || null, radius_m: Number(form.radius_m) || null } });
+    const res = await callFunction('admin-mutate', { table: 'work_locations', action: 'insert', company_id: companyId, payload: { name: form.name.trim(), address: form.address.trim() || null, radius_m: Number(form.radius_m) || null, latitude: form.latitude, longitude: form.longitude } });
     if (!res.ok) { alert(friendlyError((res.data as any)?.error)); return; }
-    setForm({ name: '', address: '', radius_m: '150' }); showToast('Localização adicionada.'); load();
+    setForm({ name: '', address: '', radius_m: '150', latitude: null, longitude: null }); showToast('Localização adicionada.'); load();
   }
   async function toggle(id: string, active: boolean) {
     const res = await callFunction('admin-mutate', { table: 'work_locations', action: 'update', company_id: companyId, id, payload: { active: !active } });
@@ -590,16 +593,28 @@ function Locations({ companyId }: { companyId: string }) {
             <div className="field"><label>Endereço</label><input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} /></div>
             <div className="field"><label>Raio (m)</label><input value={form.radius_m} onChange={e => setForm({ ...form, radius_m: e.target.value })} /></div>
           </div>
+          <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap', marginBottom:10 }}>
+            <button type="button" className="btn light" disabled={gpsBusy} onClick={() => {
+              if (!navigator.geolocation) { alert('Este aparelho não oferece localização.'); return; }
+              setGpsBusy(true);
+              navigator.geolocation.getCurrentPosition(
+                p => { setGpsBusy(false); setForm(f => ({ ...f, latitude:p.coords.latitude, longitude:p.coords.longitude })); },
+                () => { setGpsBusy(false); alert('Não foi possível obter o GPS. Permita a localização no navegador.'); },
+                { enableHighAccuracy:true, maximumAge:0, timeout:15000 }
+              );
+            }}>{gpsBusy ? 'Obtendo GPS...' : '📍 Marcar posição pelo GPS'}</button>
+            <span className="helptext">{form.latitude != null ? 'Posição da unidade capturada.' : 'Marque a posição exata da unidade.'}</span>
+          </div>
           <button className="btn green" type="submit">Adicionar</button>
         </form>
       </div>
       <div className="card">
         <table>
-          <thead><tr><th>Nome</th><th>Endereço</th><th>Raio</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Nome</th><th>Endereço</th><th>Raio</th><th>GPS</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {list.map(l => (
               <tr key={l.id}>
-                <td>{l.name}</td><td>{l.address || '-'}</td><td>{l.radius_m ? `${l.radius_m}m` : '-'}</td>
+                <td>{l.name}</td><td>{l.address || '-'}</td><td>{l.radius_m ? `${l.radius_m}m` : '-'}</td><td>{l.latitude != null && l.longitude != null ? <span className="tag">Definido</span> : <span className="tag warn">Não definido</span>}</td>
                 <td><span className={`tag ${l.active ? '' : 'off'}`}>{l.active ? 'Ativa' : 'Inativa'}</span></td>
                 <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button className="btn light" onClick={() => toggle(l.id, l.active)}>{l.active ? 'Desativar' : 'Ativar'}</button>
@@ -607,7 +622,7 @@ function Locations({ companyId }: { companyId: string }) {
                 </td>
               </tr>
             ))}
-            {!list.length && <tr><td colSpan={5} className="empty-row">Nenhuma localização cadastrada.</td></tr>}
+            {!list.length && <tr><td colSpan={6} className="empty-row">Nenhuma localização cadastrada.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -663,6 +678,112 @@ function Access({ companyId }: { companyId: string }) {
           {!list.length && <tr><td colSpan={5} className="empty-row">Nenhum acesso gerado ainda.</td></tr>}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/* ---------------------------- Jornada semanal ---------------------------- */
+function Schedules({ companyId }: { companyId: string }) {
+  const showToast = useToast();
+  const days = [
+    [1, 'Segunda-feira'], [2, 'Terça-feira'], [3, 'Quarta-feira'], [4, 'Quinta-feira'],
+    [5, 'Sexta-feira'], [6, 'Sábado'], [7, 'Domingo']
+  ] as const;
+  const [employees, setEmployees] = React.useState<any[]>([]);
+  const [employeeId, setEmployeeId] = React.useState('');
+  const [rows, setRows] = React.useState<any[]>([]);
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    supabase.from('employees').select('id,full_name,registration_code')
+      .eq('company_id', companyId).eq('active', true).order('full_name')
+      .then(({ data }) => {
+        const list = data || [];
+        setEmployees(list);
+        if (!employeeId && list[0]) setEmployeeId(list[0].id);
+      });
+  }, [companyId]);
+
+  React.useEffect(() => {
+    if (!employeeId) { setRows([]); return; }
+    supabase.from('employee_work_schedules').select('*')
+      .eq('company_id', companyId).eq('employee_id', employeeId).order('weekday')
+      .then(({ data }) => {
+        const existing = data || [];
+        setRows(days.map(([weekday]) => {
+          const found = existing.find((x: any) => x.weekday === weekday);
+          return found || {
+            weekday, enabled: weekday <= 5,
+            entry_time: '08:00', break_start_time: '12:00',
+            break_end_time: '14:00', exit_time: '18:00',
+            tolerance_late_minutes: 0, tolerance_early_minutes: 0,
+            notify_employee_late: true, notify_employee_missing: true,
+            notify_employee_overtime: true, notify_company: true
+          };
+        }));
+      });
+  }, [companyId, employeeId]);
+
+  function patchRow(weekday: number, patch: any) {
+    setRows(current => current.map(r => r.weekday === weekday ? { ...r, ...patch } : r));
+  }
+
+  async function save() {
+    if (!employeeId) { alert('Selecione um funcionário.'); return; }
+    setSaving(true);
+    const { data, error } = await supabase.functions.invoke('save-employee-schedule', {
+      body: { company_id: companyId, employee_id: employeeId, schedules: rows }
+    });
+    setSaving(false);
+    if (error || !data?.ok) {
+      alert(error?.message || data?.error || 'Não foi possível salvar a jornada.');
+      return;
+    }
+    showToast('Jornada semanal salva.');
+  }
+
+  return (
+    <div>
+      <div className="card">
+        <h2>Carga horária do funcionário</h2>
+        <p className="helptext">Configure de segunda a domingo. Entrada, início/fim de pausa e saída serão usados como referência para os cálculos de jornada.</p>
+        <div className="field" style={{ maxWidth: 480 }}>
+          <label>Funcionário</label>
+          <select value={employeeId} onChange={e => setEmployeeId(e.target.value)}>
+            {!employees.length && <option value="">Nenhum funcionário ativo</option>}
+            {employees.map(e => <option key={e.id} value={e.id}>{e.full_name}{e.registration_code ? ' — ' + e.registration_code : ''}</option>)}
+          </select>
+        </div>
+      </div>
+      {employeeId && <div className="card">
+        <div style={{ overflowX:'auto' }}>
+          <table style={{ minWidth: 1050 }}>
+            <thead><tr><th>Dia</th><th>Trabalha</th><th>Entrada</th><th>Início pausa</th><th>Fim pausa</th><th>Saída</th><th>Tol. entrada (min)</th><th>Tol. saída (min)</th><th>Alertas</th></tr></thead>
+            <tbody>
+              {rows.map(r => <tr key={r.weekday}>
+                <td><b>{days.find(d => d[0] === r.weekday)?.[1]}</b></td>
+                <td><input type="checkbox" checked={!!r.enabled} onChange={e => patchRow(r.weekday,{enabled:e.target.checked})}/></td>
+                <td><input type="time" value={r.entry_time || ''} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{entry_time:e.target.value})}/></td>
+                <td><input type="time" value={r.break_start_time || ''} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{break_start_time:e.target.value})}/></td>
+                <td><input type="time" value={r.break_end_time || ''} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{break_end_time:e.target.value})}/></td>
+                <td><input type="time" value={r.exit_time || ''} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{exit_time:e.target.value})}/></td>
+                <td><input type="number" min="0" max="120" style={{width:82}} value={r.tolerance_late_minutes ?? 0} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{tolerance_late_minutes:Number(e.target.value)})}/></td>
+                <td><input type="number" min="0" max="120" style={{width:82}} value={r.tolerance_early_minutes ?? 0} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{tolerance_early_minutes:Number(e.target.value)})}/></td>
+                <td>
+                  <label className="helptext"><input type="checkbox" checked={r.notify_employee_late !== false} onChange={e=>patchRow(r.weekday,{notify_employee_late:e.target.checked})}/> atraso</label><br/>
+                  <label className="helptext"><input type="checkbox" checked={r.notify_employee_missing !== false} onChange={e=>patchRow(r.weekday,{notify_employee_missing:e.target.checked})}/> sem ponto</label><br/>
+                  <label className="helptext"><input type="checkbox" checked={r.notify_employee_overtime !== false} onChange={e=>patchRow(r.weekday,{notify_employee_overtime:e.target.checked})}/> extra</label><br/>
+                  <label className="helptext"><input type="checkbox" checked={r.notify_company !== false} onChange={e=>patchRow(r.weekday,{notify_company:e.target.checked})}/> empresa</label>
+                </td>
+              </tr>)}
+            </tbody>
+          </table>
+        </div>
+        <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginTop:12}}>
+          <button className="btn green" disabled={saving} onClick={save}>{saving ? 'Salvando...' : 'Salvar jornada'}</button>
+          <span className="helptext">Exemplo: 08:00–12:00 / 14:00–18:00.</span>
+        </div>
+      </div>}
     </div>
   );
 }
