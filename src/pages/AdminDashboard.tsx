@@ -540,6 +540,19 @@ function Locations({ companyId }: { companyId: string }) {
     load();
   }
 
+  async function deleteLocation(id: string, name: string) {
+    if (!window.confirm(`Excluir permanentemente a localização "${name}"? Os registros de ponto existentes manterão o histórico, mas deixarão de apontar para esta localização.`)) return;
+    const { data, error } = await supabase.functions.invoke('delete-company-item', {
+      body: { company_id: companyId, table: 'work_locations', id }
+    });
+    if (error || !data?.ok) {
+      alert(error?.message || friendlyError(data?.error));
+      return;
+    }
+    showToast('Localização excluída.');
+    load();
+  }
+
   return (
     <div>
       <div className="card">
@@ -561,7 +574,10 @@ function Locations({ companyId }: { companyId: string }) {
               <tr key={l.id}>
                 <td>{l.name}</td><td>{l.address || '-'}</td><td>{l.radius_m ? `${l.radius_m}m` : '-'}</td>
                 <td><span className={`tag ${l.active ? '' : 'off'}`}>{l.active ? 'Ativa' : 'Inativa'}</span></td>
-                <td><button className="btn light" onClick={() => toggle(l.id, l.active)}>{l.active ? 'Desativar' : 'Ativar'}</button></td>
+                <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button className="btn light" onClick={() => toggle(l.id, l.active)}>{l.active ? 'Desativar' : 'Ativar'}</button>
+                  <button className="btn danger" onClick={() => deleteLocation(l.id, l.name)}>Excluir</button>
+                </td>
               </tr>
             ))}
             {!list.length && <tr><td colSpan={5} className="empty-row">Nenhuma localização cadastrada.</td></tr>}
@@ -587,6 +603,19 @@ function Access({ companyId }: { companyId: string }) {
     showToast('Acesso revogado.');
     load();
   }
+
+  async function deleteAccess(id: string, employeeName: string) {
+    if (!window.confirm(`Excluir definitivamente o acesso de ${employeeName}? O funcionário continuará cadastrado, mas este link de acesso será removido.`)) return;
+    const { data, error } = await supabase.functions.invoke('delete-company-item', {
+      body: { company_id: companyId, table: 'employee_access', id }
+    });
+    if (error || !data?.ok) {
+      alert(error?.message || friendlyError(data?.error));
+      return;
+    }
+    showToast('Acesso excluído.');
+    load();
+  }
   return (
     <div className="card">
       <table>
@@ -598,7 +627,10 @@ function Access({ companyId }: { companyId: string }) {
               <td>{new Date(a.issued_at).toLocaleString('pt-BR')}</td>
               <td>{a.last_access_at ? new Date(a.last_access_at).toLocaleString('pt-BR') : '—'}</td>
               <td><span className={`tag ${a.active ? '' : 'off'}`}>{a.active ? 'Ativo' : 'Revogado'}</span></td>
-              <td>{a.active && <button className="btn danger" onClick={() => revoke(a.id)}>Revogar</button>}</td>
+              <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {a.active && <button className="btn light" onClick={() => revoke(a.id)}>Revogar</button>}
+                <button className="btn danger" onClick={() => deleteAccess(a.id, a.employees?.full_name || 'este funcionário')}>Excluir</button>
+              </td>
             </tr>
           ))}
           {!list.length && <tr><td colSpan={5} className="empty-row">Nenhum acesso gerado ainda.</td></tr>}
