@@ -318,11 +318,13 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
 
       // Analisa a própria imagem capturada, já decodificada, e não um canvas
       // que pode estar sendo reutilizado pelo navegador.
-      const image = new Image();
-      image.decoding = 'async';
-      image.src = captured;
-      await Promise.race([
-        image.decode(),
+      const image = await Promise.race([
+        new Promise<HTMLImageElement>((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error('IMAGE_DECODE_FAILED'));
+          img.src = captured;
+        }),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('IMAGE_DECODE_TIMEOUT')), 10000)
         )
@@ -425,7 +427,7 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
       <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
         {!captured && <button className="btn green" disabled={!streaming} onClick={capture}>Capturar foto</button>}
         {captured && <button className="btn light" disabled={busy} onClick={() => { setCaptured(null); setStatus(''); }}>Tirar novamente</button>}
-        {captured && <button className="btn green" disabled={busy || !modelsReady} onClick={confirm}>{busy ? 'Enviando...' : 'Confirmar cadastro'}</button>}
+        {captured && <button className="btn green" disabled={busy} onClick={confirm}>{busy ? 'Processando...' : 'Confirmar cadastro'}</button>}
         <button className="btn light" disabled={busy} onClick={onCancel}>Cancelar</button>
       </div>
     </div>
