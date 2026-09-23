@@ -57,6 +57,21 @@ export default function PlatformAdmin() {
     check();
   }
 
+  async function deleteCompany(id: string, name: string) {
+    if (!window.confirm(`Excluir permanentemente a empresa "${name}"? Todos os dados operacionais dessa empresa serão removidos. Essa ação não pode ser desfeita.`)) return;
+    setBusy(true);
+    const { data, error } = await supabase.functions.invoke('platform-delete-company', {
+      body: { company_id: id }
+    });
+    setBusy(false);
+    if (error || !data?.ok) {
+      alert(error?.message || 'Não foi possível excluir a empresa.');
+      return;
+    }
+    if (inviteLink?.name === name) setInviteLink(null);
+    await check();
+  }
+
   async function logout() { await supabase.auth.signOut(); }
 
   if (session === 'checking') return <div className="admin-auth"><div className="card"><h1>Carregando...</h1></div></div>;
@@ -129,7 +144,10 @@ export default function PlatformAdmin() {
                   <td>{c.owner_email || <span className="helptext">ainda não vinculado</span>}</td>
                   <td><span className={`tag ${c.active ? '' : 'danger'}`}>{c.active ? 'Ativa' : 'Suspensa'}</span></td>
                   <td>{c.has_pending_invite ? <span className="tag warn">Pendente</span> : <span className="tag off">—</span>}</td>
-                  <td><button className="btn light" onClick={() => toggleActive(c.id, c.active)}>{c.active ? 'Suspender' : 'Reativar'}</button></td>
+                  <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button className="btn light" disabled={busy} onClick={() => toggleActive(c.id, c.active)}>{c.active ? 'Suspender' : 'Reativar'}</button>
+                    <button className="btn danger" disabled={busy} onClick={() => deleteCompany(c.id, c.name)}>Excluir empresa</button>
+                  </td>
                 </tr>
               ))}
               {!companies.length && <tr><td colSpan={5} className="empty-row">Nenhuma empresa cadastrada ainda.</td></tr>}
