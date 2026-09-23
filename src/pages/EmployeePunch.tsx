@@ -677,8 +677,7 @@ function EmployeePunch() {
           <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
             {todayRows.slice(0, maxPunchesToday).map((h: any) => {
               const dt = new Date(h.occurred_at);
-              const balance = Number(h.balance_minutes ?? 0);
-              return (
+                    return (
                 <div key={h.id} style={{ borderTop: '1px solid var(--border)', paddingTop: 8 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                     <b>{h.punch_type === 'entry' ? 'Entrada' : 'Saída'}</b>
@@ -689,11 +688,7 @@ function EmployeePunch() {
                   </div>
                   {h.location_status === 'inside' && <div className="helptext">Dentro do local autorizado</div>}
                   {h.location_status === 'outside' && <div className="helptext" style={{ color: 'var(--danger)' }}>Fora do local autorizado</div>}
-                  {h.balance_minutes != null && balance !== 0 && (
-                    <div style={{ marginTop: 3, color: balance < 0 ? 'var(--danger)' : 'var(--brand-2)', fontWeight: 800 }}>
-                      Saldo {balance > 0 ? '+' : ''}{Math.round(balance)} min
-                    </div>
-                  )}
+
                 </div>
               );
             })}
