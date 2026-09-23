@@ -77,6 +77,7 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
   const doneRef = React.useRef(false);
   const startedAtRef = React.useRef(0);
   const lastDetectAtRef = React.useRef(0);
+  const lastTimestampRef = React.useRef(0);
   const faceFramesRef = React.useRef(0);
   const eyesOpenFramesRef = React.useRef(0);
   const blinkStartedAtRef = React.useRef(0);
@@ -186,7 +187,10 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
 
       try {
         if (video && video.readyState >= 2 && landmarker) {
-          const result = detectBlinkFrame(landmarker, video);
+          const now = performance.now();
+          const timestampMs = Math.max(now, lastTimestampRef.current + 1);
+          lastTimestampRef.current = timestampMs;
+          const result = detectBlinkFrame(landmarker, video, timestampMs);
 
           if (result) {
             lastDetectAtRef.current = Date.now();
