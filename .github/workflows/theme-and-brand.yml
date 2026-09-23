@@ -1,0 +1,84 @@
+name: Theme and brand identities
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  theme:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply visual identities
+        shell: python
+        run: |
+          from pathlib import Path
+
+          # ---------------- Admin / company dashboard ----------------
+          p = Path('src/pages/AdminDashboard.tsx')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace(
+              '<div className="admin">',
+              '<div className={`admin ${role === \'owner\' ? \'theme-rmd\' : \'theme-company\'}`}>',
+              1
+          )
+          old = '<div className="brand">RMD <span>PontoFace</span></div>'
+          new = '''<div className="brand brand-lockup">
+            <span className="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40" role="img"><path d="M20 3 34 8v10c0 9-5.8 15.6-14 19C11.8 33.6 6 27 6 18V8l14-5Z" fill="currentColor" opacity=".18"/><path d="M20 6.5 31 10v8c0 7.1-4.1 12.4-11 16-6.9-3.6-11-8.9-11-16v-8l11-3.5Z" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M20 12v9l6 3" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span>RMD <span>PontoFace</span></span>
+          </div>'''
+          if old in s:
+              s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
+
+          # ---------------- Employee mobile app ----------------
+          p = Path('src/pages/EmployeePunch.tsx')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('<div className="app">', '<div className="app theme-employee">', 1)
+          old = '<header className="top"><div className="brand">{labels.name.includes(\'+\') ? labels.name : <>RMD <span>PontoFace</span></>}</div><span className={online ? \'online\' : \'offline\'}>'
+          new = '''<header className="top"><div className="brand brand-lockup"><span className="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40" role="img"><rect x="5" y="5" width="30" height="30" rx="9" fill="currentColor" opacity=".16"/><path d="M20 10v10l6 3" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><circle cx="20" cy="20" r="11" fill="none" stroke="currentColor" stroke-width="2.2"/></svg></span><span>{labels.name.includes('+') ? labels.name : <>RMD <span>PontoFace</span></>}</span></div><span className={online ? 'online' : 'offline'}>'''
+          if old in s:
+              s = s.replace(old, new, 1)
+          s = s.replace('<div className="avatar">👤</div>', '<div className="avatar" aria-hidden="true"><svg viewBox="0 0 40 40"><circle cx="20" cy="14" r="6" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M9 34c1.8-7 5.8-10.5 11-10.5S29.2 27 31 34" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></div>', 1)
+          p.write_text(s, encoding='utf-8')
+
+          # ---------------- Shared visual system ----------------
+          css = Path('src/styles.css')
+          c = css.read_text(encoding='utf-8')
+          if '/* ---------- RMD visual identities ---------- */' not in c:
+              c += '''\n/* ---------- RMD visual identities ---------- */\n.theme-rmd{\n  --brand:#1d4ed8; --brand-2:#2563eb; --accent:#60a5fa;\n}\n.theme-company{\n  --brand:#6d28d9; --brand-2:#7c3aed; --accent:#a78bfa;\n}\n.theme-employee{\n  --brand:#0f766e; --brand-2:#0d9488; --accent:#2dd4bf;\n}\n.brand-lockup{display:flex;align-items:center;gap:9px;}\n.brand-mark{width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;background:rgba(255,255,255,.12);color:currentColor;flex:none;}\n.brand-mark svg{width:27px;height:27px;display:block;}\n.admin.theme-rmd .admin-nav{background:linear-gradient(180deg,#1d4ed8,#172554);}\n.admin.theme-company .admin-nav{background:linear-gradient(180deg,#6d28d9,#3b0764);}\n.admin.theme-rmd .kpi::before{background:linear-gradient(90deg,#2563eb,#60a5fa);}\n.admin.theme-company .kpi::before{background:linear-gradient(90deg,#7c3aed,#a78bfa);}\n.admin.theme-rmd .mobile-menu-popover button.active{background:#2563eb;}\n.admin.theme-company .mobile-menu-popover button.active{background:#7c3aed;}\n.admin.theme-rmd .admin-topbar h1{color:#1d4ed8;}\n.admin.theme-company .admin-topbar h1{color:#6d28d9;}\n.app.theme-employee .top{background:linear-gradient(135deg,#0f766e,#134e4a);}\n.app.theme-employee .avatar{background:linear-gradient(135deg,#0d9488,#2dd4bf);box-shadow:0 4px 14px rgba(13,148,136,.28);}\n.app.theme-employee .clock{color:#0f766e;}\n.app.theme-employee .primary{background:linear-gradient(135deg,#0d9488,#0f766e);box-shadow:0 6px 18px rgba(13,148,136,.25);}\n.app.theme-employee .secondary{border-color:#0d9488;color:#0f766e;}\n.brand-lockup .brand span span{opacity:.82;}\n@media(max-width:900px){\n  .brand-mark{width:32px;height:32px;border-radius:9px;}\n  .brand-mark svg{width:25px;height:25px;}\n}\n'''
+          css.write_text(c, encoding='utf-8')
+
+          # ---------------- Professional app icon ----------------
+          icon = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#2563eb"/><stop offset="1" stop-color="#0f766e"/></linearGradient></defs><rect width="512" height="512" rx="112" fill="#08152f"/><rect x="54" y="54" width="404" height="404" rx="96" fill="url(#g)"/><path d="M256 102 370 143v91c0 75-44 130-114 176-70-46-114-101-114-176v-91l114-41Z" fill="none" stroke="#fff" stroke-width="28" stroke-linejoin="round"/><path d="M256 154v112l76 44" fill="none" stroke="#fff" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/><circle cx="256" cy="256" r="18" fill="#fff"/></svg>'''
+          for name in ['public/icon.svg','public/icon-192.svg','public/icon-512.svg']:
+              Path(name).write_text(icon, encoding='utf-8')
+
+          # Browser icon.
+          idx = Path('index.html')
+          x = idx.read_text(encoding='utf-8').replace('/icon-192.png','/icon.svg')
+          idx.write_text(x, encoding='utf-8')
+
+          # Static manifest icon/theme.
+          man = Path('public/manifest.webmanifest')
+          if man.exists():
+              m = man.read_text(encoding='utf-8').replace('/icon-192.png','/icon-192.svg').replace('/icon-512.png','/icon-512.svg').replace('"type": "image/png"','"type": "image/svg+xml"').replace('"theme_color": "#102f24"','"theme_color": "#2563eb"')
+              man.write_text(m, encoding='utf-8')
+
+      - name: Commit visual update
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/pages/AdminDashboard.tsx src/pages/EmployeePunch.tsx src/styles.css index.html public/manifest.webmanifest public/icon.svg public/icon-192.svg public/icon-512.svg
+          git commit -m "feat: differentiate RMD company and employee themes"
+          git push
