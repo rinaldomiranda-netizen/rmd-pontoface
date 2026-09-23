@@ -561,7 +561,7 @@ function EmployeePunch() {
   const todayRows = Array.isArray(dashboard?.today?.rows) ? dashboard.today.rows : [];
   const todaySchedule = dashboard?.today?.schedule || null;
   const hasBreak = !!todaySchedule?.break_start_time && !!todaySchedule?.break_end_time;
-  const maxPunchesToday = hasBreak ? 4 : 2;
+  const maxPunchesToday = todaySchedule?.afternoon_enabled === true ? 4 : 2;
   const lastPunchType = todayRows.length ? todayRows[todayRows.length - 1]?.punch_type : null;
   const nextPunchType = lastPunchType === 'entry' ? 'exit' : 'entry';
   const dayFinalized = todayRows.length >= maxPunchesToday && lastPunchType === 'exit';
@@ -616,7 +616,7 @@ function EmployeePunch() {
 
       {todayRows.length > 0 && (
         <div className="fallback" style={{ marginBottom: 14 }}>
-          <b>Pontos de hoje</b>
+          <b>Pontos de hoje — {todayRows.length}/{maxPunchesToday}</b>
           <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
             {todayRows.slice(0, maxPunchesToday).map((h: any) => {
               const dt = new Date(h.occurred_at);
