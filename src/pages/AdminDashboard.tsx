@@ -98,7 +98,7 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
           {section === 'overview' ? <div className="mobile-nav">{nav}</div> : <div className="mobile-nav-back"><button className="btn light wide" onClick={() => setSection('overview')}>← Voltar ao menu</button></div>}
           {section === 'overview' && <Overview companyId={companyId} />}
           {section === 'employees' && <Employees companyId={companyId} role={role} labels={labels} />}
-          {section === 'attendance' && <Attendance companyId={companyId} />}
+          {section === 'attendance' && <Attendance companyId={companyId} role={role} />}
           {section === 'locations' && <Locations companyId={companyId} />}
           {section === 'access' && <Access companyId={companyId} />}
           {section === 'import' && <BulkImport companyId={companyId} labels={labels} />}
@@ -493,7 +493,7 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
   );
 }
 /* ---------------------------- Attendance ---------------------------- */
-function Attendance({ companyId }: { companyId: string }) {
+function Attendance({ companyId, role }: { companyId: string; role: string }) {
   const showToast = useToast();
   const [rows, setRows] = React.useState<any[]>([]);
   const [employees, setEmployees] = React.useState<any[]>([]);
@@ -504,7 +504,7 @@ function Attendance({ companyId }: { companyId: string }) {
   const [openHistory, setOpenHistory] = React.useState<string | null>(null);
   const [historyCache, setHistoryCache] = React.useState<Record<string, any[]>>({});
   const [loading, setLoading] = React.useState(false);
-  const canReset = true;
+  const canReset = ['owner', 'admin', 'hr'].includes(role);
 
   React.useEffect(() => { load(); }, [companyId, date]);
 
@@ -641,7 +641,9 @@ function Attendance({ companyId }: { companyId: string }) {
                 <button className="btn light" onClick={()=>openEmployeeHistory(item.employee.id)}>
                   {openHistory===item.employee.id ? 'Fechar pasta' : '📁 Histórico'}
                 </button>
-                {canReset && <button className="btn light" onClick={()=>resetAttendance('employee_day',item.employee.id,item.employee.full_name)}>🗑 Limpar dia</button>}
+                {canReset && <button className="btn light" onClick={()=>resetAttendance('employee_day',item.employee.id,item.employee.full_name)}>🗑 Limpar dia</button>
+                }
+                {canReset && openHistory===item.employee.id && <button className="btn danger" onClick={()=>resetAttendance('employee_all',item.employee.id,item.employee.full_name)}>♻ Zerar histórico</button>}
               </div>
 
               {openHistory===item.employee.id && (
@@ -664,29 +666,9 @@ function Attendance({ companyId }: { companyId: string }) {
         })}
       </div>
 
-      <div className="card">
-        <h2>Pontos do dia</h2>
-        <table>
-          <thead><tr><th>Funcionário</th><th>Tipo</th><th>Horário</th><th>Localização</th><th>Jornada / saldo</th><th>Biometria</th></tr></thead>
-          <tbody>
-            {rows.map((r:any)=>(
-              <tr key={r.id}>
-                <td>{r.employee_name_snapshot || '-'}</td>
-                <td><span className="tag">{r.punch_type==='entry'?'Entrada':'Saída'}</span></td>
-                <td>{new Date(r.occurred_at).toLocaleTimeString('pt-BR')}</td>
-                <td>{r.location_address || r.location_label || 'Localização não identificada'}</td>
-                <td>
-                  <div>{r.worked_minutes!=null?'Trabalhado: '+Math.round(r.worked_minutes)+' min':'—'}</div>
-                  <div style={{fontWeight:800,color:Number(r.balance_minutes)<0?'var(--danger)':Number(r.balance_minutes)>0?'var(--brand-2)':'inherit'}}>
-                    {r.balance_minutes==null?'Saldo —':'Saldo '+(Number(r.balance_minutes)>0?'+':'')+Math.round(Number(r.balance_minutes))+' min'}
-                  </div>
-                </td>
-                <td>{r.face_match_confidence!=null?Number(r.face_match_confidence).toFixed(1)+'%':'—'}</td>
-              </tr>
-            ))}
-            {!rows.length && <tr><td colSpan={6} className="empty-row">Nenhum registro nesta data.</td></tr>}
-          </tbody>
-        </table>
+      <div className="helptext" style={{ marginTop: 4, marginBottom: 18 }}>
+        Selecione a pasta de um funcionário para consultar o histórico antigo. Na tela principal ficam apenas os pontos e o saldo do dia.
+      </div>
       </div>
     </div>
   );
