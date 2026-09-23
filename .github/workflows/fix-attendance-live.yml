@@ -14,22 +14,67 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Patch attendance live refresh
+      - name: Patch attendance display and refresh
         shell: python
         run: |
           from pathlib import Path
+
           p = Path('src/pages/AdminDashboard.tsx')
           s = p.read_text(encoding='utf-8')
-          marker = "  // LIVE_ATTENDANCE_REFRESH_ENABLED\n"
-          if marker in s:
-              print('Attendance live refresh already enabled.')
-          else:
-              needle = "  React.useEffect(() => { load(); }, [companyId, date]);\n"
-              insert = needle + "\n" + marker + "  useAutoRefresh(\n    load,\n    'attendance-' + companyId + '-' + date,\n    [\n      { table: 'attendance_records', filter: 'company_id=eq.' + companyId },\n      { table: 'attendance_alerts', filter: 'company_id=eq.' + companyId },\n      { table: 'employees', filter: 'company_id=eq.' + companyId },\n      { table: 'employee_work_schedules', filter: 'company_id=eq.' + companyId }\n    ],\n    5000\n  );\n"
-              if needle not in s:
-                  raise SystemExit('Attendance effect marker not found; no file changed.')
-              p.write_text(s.replace(needle, insert, 1), encoding='utf-8')
-              print('Attendance live refresh patch applied.')
+
+          # Prevent the live refresh from replacing the attendance cards with
+          # "Carregando..." every 5 seconds. Loading is shown only on first load.
+          old = "  const [loading, setLoading] = React.useState(false);\n  const canReset = ['owner', 'admin', 'hr'].includes(role);"
+          new = "  const [loading, setLoading] = React.useState(true);\n  const initialLoadRef = React.useRef(true);\n  const canReset = ['owner', 'admin', 'hr'].includes(role);"
+          if old in s and 'initialLoadRef' not in s:
+              s = s.replace(old, new, 1)
+
+          old = "  async function load() {\n    setLoading(true);\n    const start = new Date(date + 'T00:00:00');"
+          new = "  async function load() {\n    const firstLoad = initialLoadRef.current;\n    if (firstLoad) setLoading(true);\n    const start = new Date(date + 'T00:00:00');"
+          if old in s:
+              s = s.replace(old, new, 1)
+
+          old = "    setAllRecords(historyRows || []);\n    setLoading(false);\n  }\n\n  const selectedWeekday"
+          new = "    setAllRecords(historyRows || []);\n    if (firstLoad) {\n      initialLoadRef.current = false;\n      setLoading(false);\n    }\n  }\n\n  const selectedWeekday"
+          if old in s:
+              s = s.replace(old, new, 1)
+
+          # The attendance card needs the configured entry/exit times so it can
+          # show only the deviation of the first entry, rather than the complete
+          # running daily balance.
+          old = ".select('employee_id,weekday,enabled,morning_enabled,afternoon_enabled').eq('company_id', companyId)"
+          new = ".select('employee_id,weekday,enabled,morning_enabled,afternoon_enabled,entry_time,exit_time').eq('company_id', companyId)"
+          if old in s:
+              s = s.replace(old, new, 1)
+
+          # Replace the main-card balance with entry delay/advance only.
+          old = "          const balance = item.rows.length ? Number(item.rows[item.rows.length-1].balance_minutes || 0) : 0;\n          const completed = item.rows.length;"
+          new = "          const completed = item.rows.length;\n          const firstEntry = item.rows.find((r:any) => r.punch_type === 'entry');\n          const scheduledEntry = item.schedule?.entry_time || null;\n          let entryDelta: number | null = null;\n          if (firstEntry && scheduledEntry) {\n            const [sh, sm] = String(scheduledEntry).slice(0,5).split(':').map(Number);\n            const dt = new Date(firstEntry.occurred_at);\n            const actualMinutes = dt.getHours() * 60 + dt.getMinutes();\n            const scheduledMinutes = sh * 60 + sm;\n            entryDelta = actualMinutes - scheduledMinutes;\n          }"
+          if old in s:
+              s = s.replace(old, new, 1)
+
+          old = "                <div style={{fontWeight:800,color:balance<0?'var(--danger)':balance>0?'var(--brand-2)':'inherit'}}>\n                  Saldo do dia: {balance>0?'+':''}{balance} min\n                </div>\n                <div style={{fontWeight:800,color:item.totalBalance<0?'var(--danger)':item.totalBalance>0?'var(--brand-2)':'inherit'}}>\n                  Saldo acumulado: {item.totalBalance>0?'+':''}{Math.round(item.totalBalance)} min\n                </div>"
+          new = "                {entryDelta !== null && entryDelta !== 0 && (\n                  <div style={{fontWeight:800,color:entryDelta>0?'var(--danger)':'var(--brand-2)'}}>\n                    {entryDelta > 0 ? 'Atraso na entrada: ' + entryDelta + ' min' : 'Entrada antecipada: +' + Math.abs(entryDelta) + ' min'}\n                  </div>\n                )}"
+          if old in s:
+              s = s.replace(old, new, 1)
+
+          p.write_text(s, encoding='utf-8')
+
+          # Keep the employee-facing summary consistent: do not expose the
+          # complete negative balance immediately after an entry punch.
+          p2 = Path('src/pages/EmployeePunch.tsx')
+          e = p2.read_text(encoding='utf-8')
+          old = "              <div style={{ marginTop: 3, color: Number(dashboard.today.balance) < 0 ? 'var(--danger)' : 'var(--brand-2)', fontWeight: 800 }}>\n                Saldo: {dashboard.today.balance == null ? '0 min' : (Number(dashboard.today.balance) > 0 ? '+' : '') + Math.round(Number(dashboard.today.balance)) + ' min'}\n              </div>"
+          new = "              {(() => {\n                const firstEntry = (Array.isArray(dashboard.today?.rows) ? dashboard.today.rows : []).find((r:any) => r.punch_type === 'entry');\n                const scheduled = dashboard.today?.schedule?.entry_time;\n                if (!firstEntry || !scheduled) return null;\n                const [sh, sm] = String(scheduled).slice(0,5).split(':').map(Number);\n                const dt = new Date(firstEntry.occurred_at);\n                const delta = (dt.getHours() * 60 + dt.getMinutes()) - (sh * 60 + sm);\n                if (!delta) return null;\n                return <div style={{ marginTop: 3, color: delta > 0 ? 'var(--danger)' : 'var(--brand-2)', fontWeight: 800 }}>{delta > 0 ? 'Atraso na entrada: ' + delta + ' min' : 'Entrada antecipada: +' + Math.abs(delta) + ' min'}</div>;\n              })()}"
+          if old in e:
+              e = e.replace(old, new, 1)
+
+          old = "        const balance = Number(data.balance_minutes ?? 0);\n        const saldo = balance > 0 ? ' • Saldo +' + Math.round(balance) + ' min' : balance < 0 ? ' • Faltam ' + Math.abs(Math.round(balance)) + ' min' : '';\n        setMessage(`Ponto confirmado às ${new Date(currentPunch.occurred_at).toLocaleTimeString('pt-BR')}${loc ? ' — ' + loc : ''}.${saldo}`);"
+          new = "        setMessage(`Ponto confirmado às ${new Date(currentPunch.occurred_at).toLocaleTimeString('pt-BR')}${loc ? ' — ' + loc : ''}.`);"
+          if old in e:
+              e = e.replace(old, new, 1)
+
+          p2.write_text(e, encoding='utf-8')
       - name: Commit patch
         shell: bash
         run: |
@@ -39,6 +84,6 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/pages/AdminDashboard.tsx
-          git commit -m "fix: auto refresh company attendance"
+          git add src/pages/AdminDashboard.tsx src/pages/EmployeePunch.tsx
+          git commit -m "fix: stop attendance flicker and show entry delay"
           git push
