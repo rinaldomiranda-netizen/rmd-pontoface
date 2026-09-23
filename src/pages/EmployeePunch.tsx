@@ -71,6 +71,7 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
   const [phase, setPhase] = React.useState<'loading' | 'camera' | 'centering' | 'blink' | 'captured'>('loading');
   const [hint, setHint] = React.useState('Carregando o motor de reconhecimento...');
   const rafRef = React.useRef<number | null>(null);
+  const phaseRef = React.useRef<'loading' | 'camera' | 'centering' | 'blink' | 'captured'>('loading');
   const streamRef = React.useRef<MediaStream | null>(null);
   const earHistory = React.useRef<number[]>([]);
   const centeredFrames = React.useRef(0);
@@ -82,6 +83,7 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
     let cancelled = false;
     (async () => {
       try {
+        phaseRef.current = 'camera';
         setPhase('camera'); setHint('Ligando a câmera...');
         // Pede a câmera primeiro (mantém o gesto de toque do usuário válido)
         // e carrega o motor de reconhecimento ao mesmo tempo, não depois.
@@ -93,6 +95,7 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
         setHint('Carregando o motor de reconhecimento...');
         await modelsPromise;
         if (cancelled) return;
+        phaseRef.current = 'centering';
         setPhase('centering'); setHint('Centralize seu rosto na câmera.');
         startedAtRef.current = Date.now();
         loop();
@@ -116,15 +119,17 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
           earHistory.current.push(ear);
           if (earHistory.current.length > 12) earHistory.current.shift();
 
-          if (centeredFrames.current > 10 && phase === 'centering') {
+          if (centeredFrames.current > 8 && phaseRef.current === 'centering') {
+            phaseRef.current = 'blink';
             setPhase('blink'); setHint('Agora pisque os olhos devagar.');
           }
-          if (phase === 'blink' || (phase === 'centering' && centeredFrames.current > 10)) {
+          if (phaseRef.current === 'blink') {
             const recentMin = Math.min(...earHistory.current);
             const recentMax = Math.max(...earHistory.current);
             if (recentMin < 0.22 && recentMax > 0.28 && !blinkDetected.current) {
               blinkDetected.current = true;
               doneRef.current = true;
+              phaseRef.current = 'captured';
               setPhase('captured'); setHint('Rosto confirmado!');
               const descriptor = Array.from(result.descriptor);
               setTimeout(() => onDone({ descriptor }), 400);
@@ -133,13 +138,14 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
           }
         } else {
           centeredFrames.current = Math.max(0, centeredFrames.current - 2);
-          if (phase !== 'centering') setPhase('centering');
+          if (phaseRef.current !== 'centering') phaseRef.current = 'centering';
+          if (phaseRef.current !== 'centering') setPhase('centering');
           setHint('Não estou vendo seu rosto. Centralize na câmera.');
         }
       }
-      if (Date.now() - startedAtRef.current > 20000 && !doneRef.current) {
+      if (Date.now() - startedAtRef.current > 60000 && !doneRef.current) {
         doneRef.current = true;
-        onCancel('Não conseguimos confirmar em tempo. Tente novamente com mais luz, olhando para a câmera.');
+        onCancel('Não conseguimos confirmar em até 60 segundos. Centralize o rosto, mantenha os olhos visíveis e pisque devagar.');
         return;
       }
       loop();
