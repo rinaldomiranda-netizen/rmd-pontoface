@@ -294,31 +294,42 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
       const { error: uploadError } = uploadResult;
       if (uploadError) throw new Error(`IMAGE_UPLOAD_FAILED: ${uploadError.message}`);
 
-      setStatus('Salvando cadastro facial...');
-      const invokePromise = supabase.functions.invoke('enroll-employee-face', {
-        body: {
-          company_id: companyId,
-          employee_id: employeeId,
-          descriptor,
-          reference_image_path: path
-        }
+      setStatus('Confirmando cadastro facial...');
+      const rpcPromise = supabase.rpc('complete_employee_face_enrollment', {
+        p_company_id: companyId,
+        p_employee_id: employeeId,
+        p_descriptor: descriptor,
+        p_reference_image_path: path
       });
 
-      const invokeResult = await Promise.race([
-        invokePromise,
+      const rpcResult = await Promise.race([
+        rpcPromise,
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('ENROLL_TIMEOUT')), 20000)
         )
       ]);
 
-      const { data, error: invokeError } = invokeResult as {
-        data: { ok?: boolean; error?: string } | null;
-        error: { message?: string } | null;
+      const { data, error: rpcError } = rpcResult as {
+        data: { ok?: boolean; error?: string; profile_id?: string } | null;
+        error: { message?: string; code?: string } | null;
       };
 
-      if (invokeError) {
-        console.error('enroll-employee-face invoke error', invokeError);
-        setStatus(invokeError.message || 'Não foi possível salvar o cadastro facial.');
+      if (rpcError) {
+        console.error('complete_employee_face_enrollment error', rpcError);
+        const message = rpcError.message || '';
+        if (message.includes('forbidden')) {
+          setStatus('Você não tem permissão para cadastrar o rosto.');
+        } else if (message.includes('employee_not_found_or_inactive')) {
+          setStatus('Funcionário não encontrado ou inativo.');
+        } else if (message.includes('reference_image_not_ready')) {
+          setStatus('A foto não foi confirmada no armazenamento. Tire outra foto e tente novamente.');
+        } else if (message.includes('invalid_descriptor')) {
+          setStatus('O rosto não pôde ser processado. Tire outra foto com boa iluminação.');
+        } else if (message.includes('ENROLL_TIMEOUT')) {
+          setStatus('A confirmação demorou mais que o esperado. Tente novamente.');
+        } else {
+          setStatus('Não foi possível confirmar o cadastro facial.');
+        }
         return;
       }
 
