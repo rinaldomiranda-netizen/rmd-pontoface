@@ -180,3 +180,124 @@ tbody tr:hover{background:rgba(23,107,73,.035);}
   .brand-mark{width:32px;height:32px;border-radius:9px;}
   .brand-mark svg{width:25px;height:25px;}
 }
+
+/* ---------- Company dashboard: professional header + stable navigation ---------- */
+.admin.theme-company{background:#f6f7fb;}
+.admin.theme-company .admin-main{padding-top:18px;}
+.admin.theme-company .admin-topbar{
+  min-height:92px;
+  margin-bottom:18px;
+  padding:14px 18px;
+  background:linear-gradient(135deg,#ffffff 0%,#faf8ff 55%,#f1ebff 100%);
+  border:1px solid #e5ddf4;
+  border-radius:20px;
+  box-shadow:0 8px 26px rgba(59,7,100,.08);
+  position:sticky;
+  top:10px;
+  z-index:15;
+}
+.admin.theme-company .company-header{
+  min-width:0;
+  flex:1 1 auto;
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr);
+  grid-template-rows:auto auto;
+  column-gap:12px;
+  align-items:center;
+}
+.admin.theme-company .company-header::before{
+  content:'🏢';
+  grid-row:1 / span 2;
+  width:48px;
+  height:48px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:14px;
+  background:linear-gradient(135deg,#7c3aed,#4c1d95);
+  color:#fff;
+  font-size:22px;
+  box-shadow:0 6px 16px rgba(124,58,237,.25);
+}
+.admin.theme-company .company-header-name{
+  min-width:0;
+  color:#24113d;
+  font-size:clamp(18px,2.2vw,25px);
+  line-height:1.15;
+  font-weight:800;
+  letter-spacing:-.35px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.admin.theme-company .company-header-name::before{
+  content:'EMPRESA';
+  display:block;
+  margin-bottom:3px;
+  color:#8b7a9e;
+  font-size:9px;
+  font-weight:800;
+  letter-spacing:1.4px;
+}
+.admin.theme-company .company-header-section{
+  color:#756a80;
+  font-size:12px;
+  font-weight:600;
+  margin-top:2px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.admin.theme-company .company-header-section::before{content:'●';color:#7c3aed;margin-right:6px;font-size:9px;}
+.admin.theme-company .admin-topbar .btn.light{background:#fff;border:1px solid #e5ddf4;color:#3b2455;}
+.admin.theme-company .admin-topbar .btn.light:hover{background:#f7f1ff;border-color:#cdb7ec;}
+.admin.theme-company .kpis{grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;}
+.admin.theme-company .kpi{border-color:#e6e0ef;box-shadow:0 5px 18px rgba(59,7,100,.055);min-height:112px;}
+.admin.theme-company .kpi b{color:#24113d;font-size:30px;}
+.admin.theme-company .kpi small{font-weight:600;}
+.admin.theme-company .mobile-nav{margin:0 0 18px;}
+.admin.theme-company .mobile-menu-trigger{width:100%;justify-content:space-between;background:#fff;border-color:#ded4eb;box-shadow:0 4px 14px rgba(59,7,100,.07);}
+.admin.theme-company .mobile-menu-trigger::after{content:'Abrir funções';font-size:11px;color:#8b7a9e;font-weight:600;}
+.admin.theme-company .mobile-menu-popover{
+  position:relative;
+  left:auto;
+  right:auto;
+  top:auto;
+  z-index:2;
+  max-height:min(62vh,520px);
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  scrollbar-width:thin;
+  margin-top:8px;
+  background:#fff;
+  border-color:#ded4eb;
+  box-shadow:0 8px 24px rgba(59,7,100,.10);
+}
+.admin.theme-company .mobile-menu-popover button{padding:13px 14px;min-height:46px;}
+.admin.theme-company .mobile-menu-popover button:hover{background:#f7f1ff;}
+.admin.theme-company .mobile-menu-popover button.active{background:linear-gradient(135deg,#7c3aed,#5b21b6);box-shadow:0 4px 12px rgba(124,58,237,.18);}
+.admin.theme-company .card{border-color:#e6e0ef;box-shadow:0 5px 18px rgba(59,7,100,.045);}
+
+@media(max-width:900px){
+  .admin.theme-company .admin-main{padding:10px 12px 44px;}
+  .admin.theme-company .admin-topbar{
+    position:relative;
+    top:auto;
+    min-height:88px;
+    padding:12px;
+    border-radius:17px;
+    margin-bottom:12px;
+  }
+  .admin.theme-company .company-header{grid-template-columns:auto minmax(0,1fr);column-gap:10px;}
+  .admin.theme-company .company-header::before{width:42px;height:42px;border-radius:12px;font-size:19px;}
+  .admin.theme-company .company-header-name{font-size:18px;}
+  .admin.theme-company .company-header-name::before{font-size:8px;}
+  .admin.theme-company .company-header-section{font-size:11px;}
+  .admin.theme-company .admin-topbar .btn{padding:9px 11px;font-size:12px;}
+  .admin.theme-company .kpis{grid-template-columns:1fr 1fr;gap:10px;}
+  .admin.theme-company .kpi{min-height:104px;padding:14px;}
+}
+
+@media(min-width:901px){
+  .admin.theme-company .mobile-nav{display:none!important;}
+}
