@@ -47,7 +47,7 @@ export function loadFaceModels(): Promise<void> {
 }
 
 export function detectorOptions() {
-  return new faceapi.TinyFaceDetectorOptions({ inputSize: 128, scoreThreshold: 0.35 });
+  return new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.25 });
 }
 
 export type DetectionResult = {
@@ -55,6 +55,14 @@ export type DetectionResult = {
   landmarks: faceapi.FaceLandmarks68;
   box: faceapi.Box;
 };
+
+export async function detectFaceLandmarks(input: HTMLVideoElement | HTMLCanvasElement | HTMLImageElement): Promise<Omit<DetectionResult, 'descriptor'> | null> {
+  const result = await faceapi
+    .detectSingleFace(input, detectorOptions())
+    .withFaceLandmarks();
+  if (!result) return null;
+  return { landmarks: result.landmarks, box: result.detection.box };
+}
 
 export async function detectFace(input: HTMLVideoElement | HTMLCanvasElement | HTMLImageElement): Promise<DetectionResult | null> {
   const result = await faceapi
