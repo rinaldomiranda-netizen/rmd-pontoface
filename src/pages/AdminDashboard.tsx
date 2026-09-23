@@ -497,6 +497,7 @@ function Attendance({ companyId }: { companyId: string }) {
   const showToast = useToast();
   const [rows, setRows] = React.useState<any[]>([]);
   const [employees, setEmployees] = React.useState<any[]>([]);
+  const [schedules, setSchedules] = React.useState<any[]>([]);
   const [alerts, setAlerts] = React.useState<any[]>([]);
   const [allRecords, setAllRecords] = React.useState<any[]>([]);
   const [date, setDate] = React.useState(() => new Date().toISOString().slice(0, 10));
@@ -510,18 +511,20 @@ function Attendance({ companyId }: { companyId: string }) {
     setLoading(true);
     const start = new Date(date + 'T00:00:00'); 
     const end = new Date(date + 'T23:59:59.999');
-    const [{ data: dayRows }, { data: empRows }, { data: alertRows }, { data: historyRows }] = await Promise.all([
+    const [{ data: dayRows }, { data: empRows }, { data: schedRows }, { data: alertRows }, { data: historyRows }] = await Promise.all([
       supabase.from('attendance_records')
         .select('id,employee_id,punch_type,occurred_at,identification_method,location_label,location_address,location_status,location_distance_m,location_accuracy_m,scheduled_minutes,worked_minutes,balance_minutes,schedule_status,offline,employee_name_snapshot')
         .eq('company_id', companyId).gte('occurred_at', start.toISOString()).lte('occurred_at', end.toISOString())
         .order('occurred_at', { ascending: true }),
       supabase.from('employees').select('id,full_name,registration_code,job_title,active').eq('company_id', companyId).order('full_name'),
+      supabase.from('employee_work_schedules').select('employee_id,weekday,enabled,afternoon_enabled').eq('company_id', companyId),
       supabase.from('attendance_alerts').select('id,employee_id,alert_type,minutes_delta,message,created_at,acknowledged').eq('company_id', companyId)
         .gte('created_at', start.toISOString()).lte('created_at', end.toISOString()).order('created_at',{ascending:false}),
       supabase.from('attendance_records').select('id,employee_id,punch_type,occurred_at,balance_minutes').eq('company_id', companyId).order('occurred_at',{ascending:true})
     ]);
     setRows(dayRows || []);
     setEmployees(empRows || []);
+    setSchedules(schedRows || []);
     setAlerts(alertRows || []);
     setAllRecords(historyRows || []);
     setLoading(false);
@@ -530,12 +533,13 @@ function Attendance({ companyId }: { companyId: string }) {
   const byEmployee = React.useMemo(() => {
     const map = new Map<string, any>();
     for (const e of employees) {
-      map.set(e.id, { employee: e, rows: [], alerts: [], totalBalance: 0 });
+      const todaySchedule = schedules.find((s:any)=>s.employee_id===e.id && Number(s.weekday)===new Date(date+'T12:00:00').getDay() ? true : false);
+      map.set(e.id, { employee: e, rows: [], alerts: [], totalBalance: 0, schedule: todaySchedule });
     }
     for (const r of rows) {
       const id = r.employee_id;
       if (!id) continue;
-      if (!map.has(id)) map.set(id, { employee: { id, full_name: r.employee_name_snapshot || 'Funcionário', active: true }, rows: [], alerts: [], totalBalance: 0 });
+      if (!map.has(id)) map.set(id, { employee: { id, full_name: r.employee_name_snapshot || 'Funcionário', active: true }, rows: [], alerts: [], totalBalance: 0, schedule: schedules.find((s:any)=>s.employee_id===id) || null });
       map.get(id).rows.push(r);
     }
     for (const a of alerts) {
@@ -553,7 +557,7 @@ function Attendance({ companyId }: { companyId: string }) {
       if (map.has(id)) map.get(id).totalBalance += Number(r.balance_minutes || 0);
     }
     return [...map.values()].sort((a,b)=>String(a.employee.full_name).localeCompare(String(b.employee.full_name)));
-  }, [employees, rows, alerts, allRecords]);
+  }, [employees, schedules, rows, alerts, allRecords, date]);
 
   async function openEmployeeHistory(employeeId: string) {
     setOpenHistory(employeeId);
@@ -593,7 +597,7 @@ function Attendance({ companyId }: { companyId: string }) {
         {byEmployee.map(item => {
           const balance = item.rows.length ? Number(item.rows[item.rows.length-1].balance_minutes || 0) : 0;
           const completed = item.rows.filter((r:any)=>r.punch_type==='entry').length + item.rows.filter((r:any)=>r.punch_type==='exit').length;
-          const hasFour = item.rows.length >= 4;
+          const maxToday = item.schedule?.afternoon_enabled === true ? 4 : 2;
           return (
             <div className="card" key={item.employee.id} style={{margin:0}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
@@ -605,7 +609,7 @@ function Attendance({ companyId }: { companyId: string }) {
                 <div style={{fontSize:30}}>📁</div>
               </div>
               <div style={{marginTop:10,display:'grid',gap:6}}>
-                <div><b>Pontos de hoje:</b> {completed}/4</div>
+                <div><b>Pontos do dia:</b> {completed}/{maxToday}</div>
                 <div style={{fontWeight:800,color:balance<0?'var(--danger)':balance>0?'var(--brand-2)':'inherit'}}>
                   Saldo do dia: {balance>0?'+':''}{balance} min
                 </div>
