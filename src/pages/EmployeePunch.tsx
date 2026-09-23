@@ -286,6 +286,7 @@ function EmployeePunch() {
   const [dashboard, setDashboard] = React.useState<any>(null);
   const [activeAlert, setActiveAlert] = React.useState<any>(null);
   const seenAlertIdsRef = React.useRef<Set<string>>(new Set());
+  const locationPromiseRef = React.useRef<Promise<{ latitude: number | null; longitude: number | null; accuracy: number | null; location_label: string | null; location_address: string | null }> | null>(null);
   const [labels, setLabels] = React.useState({ name: 'RMD PontoFace', person_label: 'Funcionário', entry_label: 'Bater entrada', exit_label: 'Bater saída', exit_enabled: true });
   const pwa = usePwaInstall(`${location.pathname}${location.search}`);
 
@@ -454,9 +455,11 @@ function EmployeePunch() {
       return;
     }
 
-    // Não bloqueie a câmera pelo GPS. O reconhecimento facial começa imediatamente.
+    // Câmera e GPS começam juntos. O GPS não bloqueia a câmera, mas a confirmação
+    // espera a leitura iniciada aqui para não enviar coordenadas nulas por corrida.
+    locationPromiseRef.current = getGeolocation();
     setMode('liveness');
-    getGeolocation().then(geo => {
+    locationPromiseRef.current.then(geo => {
       setSelectedPunch(current => current ? { ...current, latitude: geo.latitude, longitude: geo.longitude, location_accuracy_m: geo.accuracy, location_label: geo.location_label, location_address: geo.location_address } : current);
     }).catch(() => {});
   }
@@ -464,23 +467,40 @@ function EmployeePunch() {
   async function onLivenessDone(punch: Punch, result: { descriptor: number[] }) {
     setMode('idle');
     setMessage('Confirmando ponto...');
+
+    // Usa a mesma leitura de GPS iniciada no começo da batida. Isso elimina
+    // a condição de corrida em que o rosto era aprovado antes do GPS terminar.
+    let currentPunch = punch;
+    try {
+      const geo = locationPromiseRef.current ? await locationPromiseRef.current : await getGeolocation();
+      currentPunch = {
+        ...punch,
+        latitude: geo.latitude,
+        longitude: geo.longitude,
+        location_accuracy_m: geo.accuracy,
+        location_label: geo.location_label,
+        location_address: geo.location_address,
+      };
+    } catch {}
+
     try {
       const r = await fetch(`${FUNCTIONS}/verify-face-punch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-employee-access-token': token },
         body: JSON.stringify({
           company_id: companyId, employee_id: employeeId,
-          punch_type: punch.punch_type, occurred_at: punch.occurred_at,
-          idempotency_key: punch.idempotency_key, client_event_id: punch.client_event_id,
-          latitude: punch.latitude, longitude: punch.longitude, location_accuracy_m: punch.location_accuracy_m,
-          location_label: punch.location_label, location_address: punch.location_address,
+          punch_type: currentPunch.punch_type, occurred_at: currentPunch.occurred_at,
+          idempotency_key: currentPunch.idempotency_key, client_event_id: currentPunch.client_event_id,
+          latitude: currentPunch.latitude, longitude: currentPunch.longitude, location_accuracy_m: currentPunch.location_accuracy_m,
+          location_label: currentPunch.location_label, location_address: currentPunch.location_address,
           client_captured_at: punch.client_captured_at, client_timezone: punch.client_timezone, offline: false,
           liveness_passed: true, descriptor: result.descriptor
         })
       });
       const data = await r.json();
       if (r.ok && data.approved) {
-        setMessage(`Ponto confirmado às ${new Date(punch.occurred_at).toLocaleTimeString('pt-BR')}.`);
+        const loc = data.location_address || data.location_label;
+        setMessage(`Ponto confirmado às ${new Date(currentPunch.occurred_at).toLocaleTimeString('pt-BR')}${loc ? ' — ' + loc : ''}.`);
       } else if (data.reason === 'face_not_matched') {
         setMessage('O rosto não corresponde ao cadastro. Tente novamente, com boa iluminação.');
       } else if (data.error === 'facial_profile_not_enrolled') {
@@ -492,6 +512,7 @@ function EmployeePunch() {
       setMessage('Falha de conexão ao confirmar o ponto. Tente novamente.');
     }
     setSelectedPunch(null);
+    locationPromiseRef.current = null;
   }
 
   function onLivenessCancel(msg: string) {
