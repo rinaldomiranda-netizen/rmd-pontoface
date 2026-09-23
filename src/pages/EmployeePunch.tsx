@@ -257,7 +257,7 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
 
   return (
     <div className="liveness-page">
-      <div className="brand">RMD <span>PontoFace</span></div>
+      <div className="brand" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1 }}><span style={{ fontSize: 24 }}>PontoFace</span><small style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>RMD</small></div>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 20 }}>
         <div style={{ width: 280, height: 280, borderRadius: '50%', overflow: 'hidden', border: '4px solid #2f9e6e', background: '#000' }}>
           <video ref={videoRef} muted playsInline autoPlay style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
@@ -288,7 +288,7 @@ function EmployeePunch() {
   const [activeAlert, setActiveAlert] = React.useState<any>(null);
   const seenAlertIdsRef = React.useRef<Set<string>>(new Set());
   const locationPromiseRef = React.useRef<Promise<{ latitude: number | null; longitude: number | null; accuracy: number | null; location_label: string | null; location_address: string | null }> | null>(null);
-  const [labels, setLabels] = React.useState({ name: 'RMD PontoFace', person_label: 'Funcionário', entry_label: 'Bater entrada', exit_label: 'Bater saída', exit_enabled: true });
+  const [labels, setLabels] = React.useState({ name: 'RMD PontoFace', person_label: 'Funcionário', entry_label: 'Bater entrada', exit_label: 'Bater saída', exit_enabled: true, logo_url: null as string | null });
   const pwa = usePwaInstall(`${location.pathname}${location.search}`);
 
   React.useEffect(() => {
@@ -573,9 +573,9 @@ function EmployeePunch() {
   const dayFinalized = todayRows.length >= maxPunchesToday && lastPunchType === 'exit';
 
   return <div className="app">
-    <header className="top"><div className="brand">{labels.name.includes('+') ? labels.name : <>RMD <span>PontoFace</span></>}</div><span className={online ? 'online' : 'offline'}>● {online ? 'Online' : 'Offline'}</span></header>
+    <header className="top"><div className="brand" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1 }}><span style={{ fontSize: 24 }}>PontoFace</span><small style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>RMD</small></div><span className={online ? 'online' : 'offline'}>● {online ? 'Online' : 'Offline'}</span></header>
     <main className="employee">
-      <div className="identity"><div className="avatar">👤</div><div><small>{labels.person_label}</small><h1>{employeeName}</h1></div></div>
+      <div className="identity"><div className="avatar">👤</div><div><div style={{ fontSize: 12, opacity: 0.65, marginBottom: 2 }}>Empresa</div><div style={{ fontWeight: 800, fontSize: 16, marginBottom: 5 }}>{labels.name || 'Empresa'}</div><small>{labels.person_label}</small><h1>{employeeName}</h1></div></div>
       <div className="clock">{new Date().toLocaleTimeString('pt-BR')}</div>
       <div className="status">{message}</div>
       {!dayFinalized && nextPunchType === 'entry' && (
