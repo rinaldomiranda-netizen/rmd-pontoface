@@ -28,6 +28,7 @@ const SECTIONS: { id: Section; label: string }[] = [
 
 export default function AdminDashboard({ companyId, role, onLogout }: Props) {
   const [section, setSection] = React.useState<Section>('overview');
+  const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const [labels, setLabels] = React.useState({ person_label: 'Funcionário', people_label: 'Funcionários', entry_label: 'Bater entrada', exit_label: 'Bater saída', exit_enabled: true, presence_mode: 'both', name: 'RMD PontoFace' });
   const pwa = usePwaInstall('/admin');
   const [toastMsg, setToastMsg] = React.useState<string | null>(null);
@@ -100,7 +101,12 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
             <button className="btn light" onClick={onLogout}>Sair</button>
           </div>
           {pwa.showIosHint && <div className="fallback"><p style={{ margin: 0 }}>No iPhone ou iPad: toque no ícone de <b>Compartilhar</b> e depois em <b>"Adicionar à Tela de Início"</b>.</p><button className="link" onClick={() => pwa.setShowIosHint(false)}>Entendi</button></div>}
-          {section === 'overview' ? <div className="mobile-nav">{nav}</div> : <div className="mobile-nav-back"><button className="btn light wide" onClick={() => setSection('overview')}>← Voltar ao menu</button></div>}
+          {section === 'overview' ? (
+            <div className="mobile-nav">
+              <button className="mobile-menu-trigger" aria-label="Abrir menu do dashboard" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen(v => !v)}>☰ <span>Menu</span></button>
+              {mobileMenuOpen && <div className="mobile-menu-popover" onClick={() => setMobileMenuOpen(false)}>{nav}</div>}
+            </div>
+          ) : <div className="mobile-nav-back"><button className="btn light wide" onClick={() => setSection('overview')}>← Voltar ao menu</button></div>}
           {section === 'overview' && <Overview companyId={companyId} companyAlerts={companyAlerts} />}
           {section === 'employees' && <Employees companyId={companyId} role={role} labels={labels} />}
           {section === 'attendance' && <Attendance companyId={companyId} role={role} companyAlerts={companyAlerts} />}
@@ -153,7 +159,6 @@ function Overview({ companyId, companyAlerts }: { companyId: string; companyAler
     else setLoading(false);
   }
 
-  if (loading) return <p className="empty-row">Carregando...</p>;
   return (
     <>
       <div className="kpis">
