@@ -261,28 +261,56 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
   function capture() {
     if (!videoRef.current || !canvasRef.current) return;
     const v = videoRef.current, c = canvasRef.current;
-    c.width = v.videoWidth; c.height = v.videoHeight;
-    c.getContext('2d')!.drawImage(v, 0, 0);
+    const scale = Math.min(1, 720 / Math.max(v.videoWidth, v.videoHeight));
+    c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale);
+    c.getContext('2d')!.drawImage(v, 0, 0, c.width, c.height);
     setCaptured(c.toDataURL('image/jpeg', 0.92));
   }
 
   async function confirm() {
     if (!captured || !canvasRef.current) return;
-    setBusy(true); setStatus('Analisando o rosto na foto...');
-    const detection = await detectFace(canvasRef.current);
-    if (!detection) { setStatus('Não encontrei um rosto nítido nessa foto. Tente de novo com mais luz, olhando para a câmera.'); setBusy(false); return; }
-    const descriptor = Array.from(detection.descriptor);
+    setBusy(true);
+    setStatus('Analisando o rosto na foto...');
+    try {
+      const detection = await Promise.race([
+        detectFace(canvasRef.current),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('FACE_ANALYSIS_TIMEOUT')), 15000))
+      ]);
+      if (!detection) throw new Error('FACE_NOT_FOUND');
+      const descriptor = Array.from(detection.descriptor);
 
-    setStatus('Enviando foto de referência...');
-    const blob = await (await fetch(captured)).blob();
-    const path = `${employeeId}/reference.jpg`;
-    await supabase.storage.from('facial-references').upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
+      setStatus('Enviando foto de referência...');
+      const imageResponse = await fetch(captured);
+      if (!imageResponse.ok) throw new Error('IMAGE_READ_FAILED');
+      const blob = await imageResponse.blob();
+      if (!blob.size) throw new Error('IMAGE_READ_FAILED');
+      const path = `${employeeId}/reference.jpg`;
+      const { error: uploadError } = await supabase.storage
+        .from('facial-references')
+        .upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
+      if (uploadError) throw new Error('IMAGE_UPLOAD_FAILED');
 
-    setStatus('Salvando cadastro facial...');
-    const res = await callFunction<{ ok?: boolean; error?: string }>('enroll-employee-face', { company_id: companyId, employee_id: employeeId, descriptor, reference_image_path: path });
-    setBusy(false);
-    if (!res.ok) { setStatus(friendlyError((res.data as any)?.error)); return; }
-    onDone();
+      setStatus('Salvando cadastro facial...');
+      const res = await callFunction<{ ok?: boolean; error?: string }>('enroll-employee-face', { company_id: companyId, employee_id: employeeId, descriptor, reference_image_path: path });
+      if (!res.ok) {
+        setStatus(friendlyError((res.data as any)?.error));
+        return;
+      }
+      onDone();
+    } catch (error) {
+      const code = error instanceof Error ? error.message : '';
+      if (code === 'FACE_ANALYSIS_TIMEOUT') {
+        setStatus('Análise facial demorou mais que o esperado. Tire outra foto e tente novamente.');
+      } else if (code === 'FACE_NOT_FOUND' || code === 'IMAGE_READ_FAILED') {
+        setStatus('Não foi possível analisar o rosto da foto. Tente novamente com boa iluminação e olhando diretamente para a câmera.');
+      } else if (code === 'IMAGE_UPLOAD_FAILED') {
+        setStatus('Não foi possível enviar a foto. Tente novamente.');
+      } else {
+        setStatus('Não foi possível concluir o cadastro facial. Tente novamente.');
+      }
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
