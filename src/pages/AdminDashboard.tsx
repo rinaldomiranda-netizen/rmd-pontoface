@@ -11,7 +11,7 @@ function useToast() { return React.useContext(ToastContext); }
 
 type Props = { companyId: string; role: string; onLogout: () => void };
 
-type Section = 'overview' | 'employees' | 'attendance' | 'locations' | 'access' | 'import' | 'schedule' | 'company' | 'audit';
+type Section = 'overview' | 'employees' | 'attendance' | 'locations' | 'access' | 'import' | 'schedule' | 'presence' | 'company' | 'audit';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'overview', label: 'Dashboard' },
@@ -21,13 +21,14 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: 'access', label: 'Acessos' },
   { id: 'import', label: 'Importar' },
   { id: 'schedule', label: 'Jornada' },
+  { id: 'presence', label: 'Modo de presença' },
   { id: 'company', label: 'Empresa' },
   { id: 'audit', label: 'Auditoria' },
 ];
 
 export default function AdminDashboard({ companyId, role, onLogout }: Props) {
   const [section, setSection] = React.useState<Section>('overview');
-  const [labels, setLabels] = React.useState({ person_label: 'Funcionário', people_label: 'Funcionários', entry_label: 'Bater entrada', exit_label: 'Bater saída', exit_enabled: true, name: 'RMD PontoFace' });
+  const [labels, setLabels] = React.useState({ person_label: 'Funcionário', people_label: 'Funcionários', entry_label: 'Bater entrada', exit_label: 'Bater saída', exit_enabled: true, presence_mode: 'both', name: 'RMD PontoFace' });
   const pwa = usePwaInstall('/admin');
   const [toastMsg, setToastMsg] = React.useState<string | null>(null);
   const [companyAlerts, setCompanyAlerts] = React.useState<any[]>([]);
@@ -39,7 +40,7 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
   }
 
   React.useEffect(() => {
-    supabase.from('companies').select('name,person_label,people_label,entry_label,exit_label,exit_enabled').eq('id', companyId).maybeSingle()
+    supabase.from('companies').select('name,person_label,people_label,entry_label,exit_label,exit_enabled,presence_mode').eq('id', companyId).maybeSingle()
       .then(({ data }) => { if (data) setLabels(data as any); });
   }, [companyId]);
 
@@ -121,6 +122,7 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
           {section === 'access' && <Access companyId={companyId} />}
           {section === 'import' && <BulkImport companyId={companyId} labels={labels} />}
           {section === 'schedule' && <Schedules companyId={companyId} />}
+          {section === 'presence' && <PresenceMode companyId={companyId} role={role} />}
           {section === 'company' && <CompanySettings companyId={companyId} role={role} />}
           {section === 'audit' && <Audit companyId={companyId} />}
         </main>
@@ -1057,13 +1059,10 @@ function CompanySettings({ companyId, role }: { companyId: string; role: string 
           <div className="field"><label>Nome no plural</label><input value={company.people_label || ''} onChange={e => setCompany({ ...company, people_label: e.target.value })} disabled={!canEdit} /></div>
         </div>
         <div className="row2">
-          <div className="field"><label>Botão de entrada/presença</label><input value={company.entry_label || ''} onChange={e => setCompany({ ...company, entry_label: e.target.value })} disabled={!canEdit} placeholder="Ex: Bater entrada, Marcar presença" /></div>
-          <div className="field"><label>Botão de saída</label><input value={company.exit_label || ''} onChange={e => setCompany({ ...company, exit_label: e.target.value })} disabled={!canEdit || !company.exit_enabled} /></div>
+          <div className="field"><label>Texto da entrada/presença</label><input value={company.entry_label || ''} onChange={e => setCompany({ ...company, entry_label: e.target.value })} disabled={!canEdit} placeholder="Ex: Bater entrada, Marcar presença" /></div>
+          <div className="field"><label>Texto da saída</label><input value={company.exit_label || ''} onChange={e => setCompany({ ...company, exit_label: e.target.value })} disabled={!canEdit || company.presence_mode !== 'both'} /></div>
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, marginBottom: 14 }}>
-          <button type="button" className={`switch ${company.exit_enabled ? 'on' : ''}`} disabled={!canEdit} onClick={() => setCompany({ ...company, exit_enabled: !company.exit_enabled })}></button>
-          Usar botão de saída (desligue se for só marcar presença, sem saída)
-        </label>
+        <p className="helptext" style={{ marginBottom: 14 }}>O tipo de marcação é configurado no menu <b>Modo de presença</b>.</p>
         <h2 style={{ marginTop: 8 }}>Localização e alertas</h2>
         <div className="field"><label>Tolerância de localização (m)</label><input type="number" min="0" max="1000" value={company.location_tolerance_m ?? 0} onChange={e => setCompany({ ...company, location_tolerance_m: Number(e.target.value) })} disabled={!canEdit} /></div>
         <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13.5, marginBottom:8 }}><input type="checkbox" checked={company.location_verification_enabled !== false} onChange={e=>setCompany({ ...company, location_verification_enabled:e.target.checked })} disabled={!canEdit}/> Verificar local autorizado</label>
@@ -1080,6 +1079,110 @@ function CompanySettings({ companyId, role }: { companyId: string; role: string 
         {canEdit && <button className="btn green" type="submit">Salvar</button>}
         {saved && <span className="helptext" style={{ marginLeft: 10 }}>Salvo!</span>}
       </form>
+    </div>
+  );
+}
+
+/* ---------------------------- Presence Mode ---------------------------- */
+function PresenceMode({ companyId, role }: { companyId: string; role: string }) {
+  const showToast = useToast();
+  const [mode, setMode] = React.useState<'entry' | 'exit' | 'both'>('both');
+  const [entryLabel, setEntryLabel] = React.useState('Bater entrada');
+  const [exitLabel, setExitLabel] = React.useState('Bater saída');
+  const [busy, setBusy] = React.useState(false);
+  const canEdit = ['owner', 'admin'].includes(role);
+
+  React.useEffect(() => {
+    supabase.from('companies').select('presence_mode,exit_enabled,entry_label,exit_label')
+      .eq('id', companyId).maybeSingle()
+      .then(({ data }) => {
+        if (!data) return;
+        const fallback = data.presence_mode || (data.exit_enabled === false ? 'entry' : 'both');
+        if (fallback === 'entry' || fallback === 'exit' || fallback === 'both') setMode(fallback);
+        setEntryLabel(data.entry_label || 'Bater entrada');
+        setExitLabel(data.exit_label || 'Bater saída');
+      });
+  }, [companyId]);
+
+  async function save() {
+    if (!canEdit) return;
+    setBusy(true);
+    const res = await callFunction('admin-mutate', {
+      table: 'companies',
+      action: 'update',
+      company_id: companyId,
+      id: companyId,
+      payload: {
+        presence_mode: mode,
+        exit_enabled: mode === 'both',
+        entry_label: entryLabel.trim() || 'Marcar presença',
+        exit_label: exitLabel.trim() || 'Bater saída'
+      }
+    });
+    setBusy(false);
+    if (!res.ok) {
+      alert(friendlyError((res.data as any)?.error));
+      return;
+    }
+    showToast('Modo de presença atualizado.');
+  }
+
+  return (
+    <div className="card" style={{ maxWidth: 680 }}>
+      <h2>Modo de presença e registro</h2>
+      <p className="helptext" style={{ marginBottom: 16 }}>
+        Defina como este acesso será usado. O sistema aplica a regra escolhida também no servidor, evitando marcações fora do modo configurado.
+      </p>
+
+      <div style={{ display: 'grid', gap: 10, marginBottom: 18 }}>
+        <label className="fallback" style={{ display: 'block', cursor: canEdit ? 'pointer' : 'default' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <input type="radio" name="presence-mode" checked={mode === 'entry'} onChange={() => setMode('entry')} disabled={!canEdit} />
+            <div>
+              <b>Só presença / entrada</b>
+              <div className="helptext" style={{ marginTop: 4 }}>Ideal para reunião, evento ou controle simples de presença. Registra uma entrada por pessoa no dia, sem exigir saída.</div>
+            </div>
+          </div>
+        </label>
+        <label className="fallback" style={{ display: 'block', cursor: canEdit ? 'pointer' : 'default' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <input type="radio" name="presence-mode" checked={mode === 'exit'} onChange={() => setMode('exit')} disabled={!canEdit} />
+            <div>
+              <b>Só saída</b>
+              <div className="helptext" style={{ marginTop: 4 }}>Útil quando o acesso deve registrar somente a saída.</div>
+            </div>
+          </div>
+        </label>
+        <label className="fallback" style={{ display: 'block', cursor: canEdit ? 'pointer' : 'default' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <input type="radio" name="presence-mode" checked={mode === 'both'} onChange={() => setMode('both')} disabled={!canEdit} />
+            <div>
+              <b>Entrada e saída</b>
+              <div className="helptext" style={{ marginTop: 4 }}>Modo normal de jornada. Mantém a sequência Entrada → Saída e, quando houver tarde ativa, Entrada → Saída → Entrada → Saída.</div>
+            </div>
+          </div>
+        </label>
+      </div>
+
+      <div className="row2">
+        <div className="field"><label>Texto do botão de entrada/presença</label><input value={entryLabel} onChange={e => setEntryLabel(e.target.value)} disabled={!canEdit} /></div>
+        <div className="field"><label>Texto do botão de saída</label><input value={exitLabel} onChange={e => setExitLabel(e.target.value)} disabled={!canEdit || mode !== 'both'} /></div>
+      </div>
+
+      {mode === 'entry' && (
+        <div className="notice" style={{ marginTop: 12 }}>
+          <b>Reconhecimento automático para presença</b>
+          <div style={{ marginTop: 4 }}>No acesso individual do participante, a câmera será iniciada automaticamente para reconhecer o rosto e registrar a presença. Depois de registrada, não será aberta uma segunda marcação no mesmo dia.</div>
+        </div>
+      )}
+
+      {mode === 'both' && (
+        <div className="notice" style={{ marginTop: 12 }}>
+          O cálculo de jornada e saldo continua funcionando normalmente neste modo.
+        </div>
+      )}
+
+      {canEdit && <button className="btn green" style={{ marginTop: 16 }} disabled={busy} onClick={save}>{busy ? 'Salvando...' : 'Salvar modo de presença'}</button>}
     </div>
   );
 }
