@@ -173,7 +173,7 @@ function EmployeePunch() {
   const token = params.get('token') || '';
   const employeeId = (pathMatch && pathMatch[1]) || params.get('employee') || params.get('employee_id') || '';
   const companyId = params.get('company') || params.get('company_id') || '';
-  const [employeeName] = React.useState('Funcionário');
+  const [employeeName, setEmployeeName] = React.useState('Carregando...');
   const [online, setOnline] = React.useState(navigator.onLine);
   const [mode, setMode] = React.useState<'idle' | 'liveness' | 'document'>('idle');
   const [message, setMessage] = React.useState('Pronto para registrar.');
@@ -193,6 +193,47 @@ function EmployeePunch() {
       .catch(() => {});
   }, [companyId]);
 
+  React.useEffect(() => {
+    let cancelled = false;
+    setEmployeeName('Carregando...');
+
+    if (!token || !employeeId || !companyId) {
+      setEmployeeName('Funcionário não encontrado.');
+      return () => { cancelled = true; };
+    }
+
+    (async () => {
+      try {
+        const response = await fetch(`${FUNCTIONS}/get-employee-profile`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-employee-access-token': token
+          },
+          body: JSON.stringify({ company_id: companyId, employee_id: employeeId })
+        });
+        const data = await response.json().catch(() => null);
+        const fullName = typeof data?.full_name === 'string'
+          ? data.full_name.trim()
+          : typeof data?.employee?.full_name === 'string'
+            ? data.employee.full_name.trim()
+            : '';
+
+        if (cancelled) return;
+        if (!response.ok || !fullName) {
+          setEmployeeName('Funcionário não encontrado.');
+          return;
+        }
+        setEmployeeName(fullName);
+      } catch {
+        if (!cancelled) {
+          setEmployeeName('Não foi possível carregar o nome.');
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [companyId, employeeId, token]);
   React.useEffect(() => {
     const onBip = (e: any) => { e.preventDefault(); setInstallPrompt(e); };
     window.addEventListener('beforeinstallprompt', onBip);
