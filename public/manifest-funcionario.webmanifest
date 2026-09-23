@@ -1,0 +1,14 @@
+{
+  "name": "RMD PontoFace — Funcionário",
+  "short_name": "PontoFace Funcionário",
+  "id": "/funcionario/",
+  "start_url": "/funcionario/",
+  "scope": "/funcionario/",
+  "display": "standalone",
+  "background_color": "#effcfb",
+  "theme_color": "#0d9488",
+  "icons": [
+    { "src": "/icons/funcionario.svg", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "/icons/funcionario.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
