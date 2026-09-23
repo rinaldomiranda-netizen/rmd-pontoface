@@ -538,6 +538,19 @@ function Attendance({ companyId, role }: { companyId: string; role: string }) {
 
   React.useEffect(() => { load(); }, [companyId, date]);
 
+  // LIVE_ATTENDANCE_REFRESH_ENABLED
+  useAutoRefresh(
+    load,
+    'attendance-' + companyId + '-' + date,
+    [
+      { table: 'attendance_records', filter: 'company_id=eq.' + companyId },
+      { table: 'attendance_alerts', filter: 'company_id=eq.' + companyId },
+      { table: 'employees', filter: 'company_id=eq.' + companyId },
+      { table: 'employee_work_schedules', filter: 'company_id=eq.' + companyId }
+    ],
+    5000
+  );
+
   async function load() {
     setLoading(true);
     const start = new Date(date + 'T00:00:00');
