@@ -576,15 +576,21 @@ function Attendance({ companyId, role }: { companyId: string; role: string }) {
     setHistoryCache(prev => ({ ...prev, [employeeId]: data || [] }));
   }
 
-  async function resetAttendance(scope: 'day' | 'employee_day' | 'all', employeeId?: string, employeeName?: string) {
-    const label = scope === 'all' ? 'TODO o histórico de pontos da empresa' : scope === 'employee_day' ? 'os pontos deste funcionário no dia selecionado' : 'TODOS os pontos do dia selecionado';
+  async function resetAttendance(scope: 'day' | 'employee_day' | 'employee_all' | 'all', employeeId?: string, employeeName?: string) {
+    const label = scope === 'all'
+      ? 'TODO o histórico de pontos da empresa'
+      : scope === 'employee_all'
+        ? 'TODO o histórico deste funcionário'
+        : scope === 'employee_day'
+          ? 'os pontos deste funcionário no dia selecionado'
+          : 'TODOS os pontos do dia selecionado';
     const warning = scope === 'all'
       ? 'Esta ação é permanente e apagará todos os registros de ponto e alertas da empresa. Os cadastros de funcionários e jornadas não serão apagados.'
       : 'Esta ação é permanente e apagará os registros de ponto e alertas selecionados.';
     if (!window.confirm('Apagar ' + label + '?\n\n' + warning + '\n\nDeseja continuar?')) return;
 
     const { data, error } = await supabase.functions.invoke('delete-attendance-history', {
-      body: { company_id: companyId, scope, date: scope === 'all' ? undefined : date, employee_id: scope === 'employee_day' ? employeeId : undefined }
+      body: { company_id: companyId, scope, date: (scope === 'all' || scope === 'employee_all') ? undefined : date, employee_id: (scope === 'employee_day' || scope === 'employee_all') ? employeeId : undefined }
     });
     if (error || !data?.ok) {
       alert(error?.message || data?.error || 'Não foi possível apagar o histórico.');
@@ -625,6 +631,11 @@ function Attendance({ companyId, role }: { companyId: string; role: string }) {
 
               <div style={{marginTop:10,display:'grid',gap:7}}>
                 <div><b>Pontos do dia:</b> {completed}/{maxToday || '—'}</div>
+                <div style={{display:'flex',flexWrap:'wrap',gap:6,marginTop:2}}>
+                  {item.rows.map((p:any) => (
+                    <span key={p.id} className="tag">{p.punch_type==='entry'?'Entrada':'Saída'} {new Date(p.occurred_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
+                  ))}
+                </div>
                 <div style={{fontWeight:800,color:balance<0?'var(--danger)':balance>0?'var(--brand-2)':'inherit'}}>
                   Saldo do dia: {balance>0?'+':''}{balance} min
                 </div>
@@ -668,7 +679,6 @@ function Attendance({ companyId, role }: { companyId: string; role: string }) {
 
       <div className="helptext" style={{ marginTop: 4, marginBottom: 18 }}>
         Selecione a pasta de um funcionário para consultar o histórico antigo. Na tela principal ficam apenas os pontos e o saldo do dia.
-      </div>
       </div>
     </div>
   );
