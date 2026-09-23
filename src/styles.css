@@ -94,6 +94,8 @@ button:active{transform:scale(0.97);}
 .mobile-nav-toggle{display:none;}
 .mobile-menu-trigger{display:none;}
 .mobile-menu-popover{display:none;}
+.mobile-menu-trigger{display:none;}
+.mobile-menu-popover{display:none;}
 
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;}
 .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:0 2px 10px rgba(16,47,36,.05);position:relative;overflow:hidden;}
