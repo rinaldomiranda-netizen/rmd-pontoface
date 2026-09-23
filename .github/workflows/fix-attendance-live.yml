@@ -1,0 +1,44 @@
+name: Fix attendance live refresh
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch attendance live refresh
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('src/pages/AdminDashboard.tsx')
+          s = p.read_text(encoding='utf-8')
+          marker = "  // LIVE_ATTENDANCE_REFRESH_ENABLED\n"
+          if marker in s:
+              print('Attendance live refresh already enabled.')
+          else:
+              needle = "  React.useEffect(() => { load(); }, [companyId, date]);\n"
+              insert = needle + "\n" + marker + "  useAutoRefresh(\n    load,\n    'attendance-' + companyId + '-' + date,\n    [\n      { table: 'attendance_records', filter: 'company_id=eq.' + companyId },\n      { table: 'attendance_alerts', filter: 'company_id=eq.' + companyId },\n      { table: 'employees', filter: 'company_id=eq.' + companyId },\n      { table: 'employee_work_schedules', filter: 'company_id=eq.' + companyId }\n    ],\n    5000\n  );\n"
+              if needle not in s:
+                  raise SystemExit('Attendance effect marker not found; no file changed.')
+              p.write_text(s.replace(needle, insert, 1), encoding='utf-8')
+              print('Attendance live refresh patch applied.')
+      - name: Commit patch
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/pages/AdminDashboard.tsx
+          git commit -m "fix: auto refresh company attendance"
+          git push
