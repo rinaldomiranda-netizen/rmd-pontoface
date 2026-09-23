@@ -31,9 +31,10 @@ export function loadMediaPipeFaceLandmarker(): Promise<any> {
 export function detectBlinkFrame(
   landmarker: any,
   video: HTMLVideoElement,
+  timestampMs: number,
 ): { blinkLeft: number; blinkRight: number; blinkScore: number } | null {
-  // In the current Web API, VIDEO mode uses the video's current frame time.
-  const result = landmarker.detectForVideo(video);
+  // VIDEO mode requires a monotonically increasing timestamp.
+  const result = landmarker.detectForVideo(video, timestampMs);
   if (!result?.faceLandmarks?.length) return null;
 
   const categories = result.faceBlendshapes?.[0] || [];
