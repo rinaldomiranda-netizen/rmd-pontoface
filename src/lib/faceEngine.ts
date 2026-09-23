@@ -47,7 +47,7 @@ export function loadFaceModels(): Promise<void> {
 }
 
 export function detectorOptions() {
-  return new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
+  return new faceapi.TinyFaceDetectorOptions({ inputSize: 128, scoreThreshold: 0.35 });
 }
 
 export type DetectionResult = {
