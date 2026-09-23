@@ -504,12 +504,13 @@ function Attendance({ companyId }: { companyId: string }) {
   const [openHistory, setOpenHistory] = React.useState<string | null>(null);
   const [historyCache, setHistoryCache] = React.useState<Record<string, any[]>>({});
   const [loading, setLoading] = React.useState(false);
+  const canReset = true;
 
   React.useEffect(() => { load(); }, [companyId, date]);
 
   async function load() {
     setLoading(true);
-    const start = new Date(date + 'T00:00:00'); 
+    const start = new Date(date + 'T00:00:00');
     const end = new Date(date + 'T23:59:59.999');
     const [{ data: dayRows }, { data: empRows }, { data: schedRows }, { data: alertRows }, { data: historyRows }] = await Promise.all([
       supabase.from('attendance_records')
@@ -517,10 +518,11 @@ function Attendance({ companyId }: { companyId: string }) {
         .eq('company_id', companyId).gte('occurred_at', start.toISOString()).lte('occurred_at', end.toISOString())
         .order('occurred_at', { ascending: true }),
       supabase.from('employees').select('id,full_name,registration_code,job_title,active').eq('company_id', companyId).order('full_name'),
-      supabase.from('employee_work_schedules').select('employee_id,weekday,enabled,afternoon_enabled').eq('company_id', companyId),
-      supabase.from('attendance_alerts').select('id,employee_id,alert_type,minutes_delta,message,created_at,acknowledged').eq('company_id', companyId)
-        .gte('created_at', start.toISOString()).lte('created_at', end.toISOString()).order('created_at',{ascending:false}),
-      supabase.from('attendance_records').select('id,employee_id,punch_type,occurred_at,balance_minutes').eq('company_id', companyId).order('occurred_at',{ascending:true})
+      supabase.from('employee_work_schedules').select('employee_id,weekday,enabled,morning_enabled,afternoon_enabled').eq('company_id', companyId),
+      supabase.from('attendance_alerts').select('id,employee_id,alert_type,minutes_delta,message,created_at,acknowledged')
+        .eq('company_id', companyId).gte('created_at', start.toISOString()).lte('created_at', end.toISOString()).order('created_at', { ascending: false }),
+      supabase.from('attendance_records').select('id,employee_id,punch_type,occurred_at,balance_minutes')
+        .eq('company_id', companyId).order('occurred_at', { ascending: true })
     ]);
     setRows(dayRows || []);
     setEmployees(empRows || []);
@@ -530,66 +532,77 @@ function Attendance({ companyId }: { companyId: string }) {
     setLoading(false);
   }
 
+  const selectedWeekday = new Date(date + 'T12:00:00').getDay() || 7;
+
   const byEmployee = React.useMemo(() => {
     const map = new Map<string, any>();
     for (const e of employees) {
-      const selectedWeekday = new Date(date + 'T12:00:00').getDay() || 7;
-      const todaySchedule = schedules.find((s:any)=>s.employee_id===e.id && Number(s.weekday)===selectedWeekday);
-      map.set(e.id, { employee: e, rows: [], alerts: [], totalBalance: 0, schedule: todaySchedule });
+      const schedule = schedules.find((s: any) => s.employee_id === e.id && Number(s.weekday) === selectedWeekday);
+      map.set(e.id, { employee: e, rows: [], alerts: [], totalBalance: 0, schedule });
     }
     for (const r of rows) {
       const id = r.employee_id;
       if (!id) continue;
-      if (!map.has(id)) map.set(id, { employee: { id, full_name: r.employee_name_snapshot || 'Funcionário', active: true }, rows: [], alerts: [], totalBalance: 0, schedule: schedules.find((s:any)=>s.employee_id===id) || null });
+      if (!map.has(id)) map.set(id, { employee: { id, full_name: r.employee_name_snapshot || 'Funcionário', active: true }, rows: [], alerts: [], totalBalance: 0, schedule: null });
       map.get(id).rows.push(r);
     }
     for (const a of alerts) {
       if (map.has(a.employee_id)) map.get(a.employee_id).alerts.push(a);
     }
-    // Each day has the final balance on its latest punch. Sum once per day, not once per punch.
+
+    // Somamos somente o saldo final de cada dia, uma vez por dia.
     const lastByDay = new Map<string, any>();
     for (const r of allRecords) {
       if (!r.employee_id || r.balance_minutes == null) continue;
-      const key = r.employee_id + '|' + new Date(r.occurred_at).toISOString().slice(0,10);
-      lastByDay.set(key, r);
+      const dayKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date(r.occurred_at));
+      lastByDay.set(r.employee_id + '|' + dayKey, r);
     }
     for (const r of lastByDay.values()) {
-      const id = r.employee_id;
-      if (map.has(id)) map.get(id).totalBalance += Number(r.balance_minutes || 0);
+      if (map.has(r.employee_id)) map.get(r.employee_id).totalBalance += Number(r.balance_minutes || 0);
     }
-    return [...map.values()].sort((a,b)=>String(a.employee.full_name).localeCompare(String(b.employee.full_name)));
-  }, [employees, schedules, rows, alerts, allRecords, date]);
+    return [...map.values()].sort((a,b) => String(a.employee.full_name).localeCompare(String(b.employee.full_name)));
+  }, [employees, schedules, rows, alerts, allRecords, selectedWeekday]);
 
   async function openEmployeeHistory(employeeId: string) {
+    if (openHistory === employeeId) {
+      setOpenHistory(null);
+      return;
+    }
     setOpenHistory(employeeId);
     if (historyCache[employeeId]) return;
     const { data } = await supabase.from('attendance_records')
       .select('id,punch_type,occurred_at,location_label,location_address,location_status,worked_minutes,balance_minutes,schedule_status')
-      .eq('company_id', companyId).eq('employee_id', employeeId).order('occurred_at',{ascending:false}).limit(120);
+      .eq('company_id', companyId).eq('employee_id', employeeId).order('occurred_at', { ascending: false }).limit(120);
     setHistoryCache(prev => ({ ...prev, [employeeId]: data || [] }));
   }
 
-  function exportCsv() {
-    const header = 'Funcionario,Tipo,Horario,Localizacao,Saldo(min),Offline\\n';
-    const body = rows.map((r:any)=>[
-      r.employee_name_snapshot || r.employee?.full_name || '',
-      r.punch_type,
-      r.occurred_at,
-      (r.location_address || r.location_label || 'Localização não identificada').replace(/,/g,' '),
-      r.balance_minutes ?? '',
-      r.offline ? 'sim' : 'nao'
-    ].join(',')).join('\\n');
-    const blob = new Blob([header + body], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href=url; a.download='ponto-'+date+'.csv'; a.click(); URL.revokeObjectURL(url);
+  async function resetAttendance(scope: 'day' | 'employee_day' | 'all', employeeId?: string, employeeName?: string) {
+    const label = scope === 'all' ? 'TODO o histórico de pontos da empresa' : scope === 'employee_day' ? 'os pontos deste funcionário no dia selecionado' : 'TODOS os pontos do dia selecionado';
+    const warning = scope === 'all'
+      ? 'Esta ação é permanente e apagará todos os registros de ponto e alertas da empresa. Os cadastros de funcionários e jornadas não serão apagados.'
+      : 'Esta ação é permanente e apagará os registros de ponto e alertas selecionados.';
+    if (!window.confirm('Apagar ' + label + '?\n\n' + warning + '\n\nDeseja continuar?')) return;
+
+    const { data, error } = await supabase.functions.invoke('delete-attendance-history', {
+      body: { company_id: companyId, scope, date: scope === 'all' ? undefined : date, employee_id: scope === 'employee_day' ? employeeId : undefined }
+    });
+    if (error || !data?.ok) {
+      alert(error?.message || data?.error || 'Não foi possível apagar o histórico.');
+      return;
+    }
+    setOpenHistory(null);
+    setHistoryCache({});
+    showToast((data.deleted_records || 0) + ' ponto(s) apagado(s).');
+    load();
   }
 
   return (
     <div>
       <div className="card" style={{display:'flex',gap:12,alignItems:'flex-end',flexWrap:'wrap'}}>
-        <div className="field" style={{margin:0}}><label>Data</label><input type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>
+        <div className="field" style={{margin:0}}><label>Dia exibido</label><input type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>
         <button className="btn light" onClick={exportCsv}>Exportar CSV</button>
-        <span className="helptext">O painel mostra o dia selecionado; o histórico completo fica guardado no sistema.</span>
+        {canReset && <button className="btn light" onClick={()=>resetAttendance('day')}>🗑 Apagar pontos deste dia</button>}
+        {canReset && <button className="btn danger" onClick={()=>resetAttendance('all')}>♻ Zerar todo o histórico</button>}
       </div>
 
       {loading && <p className="empty-row">Carregando...</p>}
@@ -597,8 +610,8 @@ function Attendance({ companyId }: { companyId: string }) {
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(290px,1fr))',gap:12,marginBottom:14}}>
         {byEmployee.map(item => {
           const balance = item.rows.length ? Number(item.rows[item.rows.length-1].balance_minutes || 0) : 0;
-          const completed = item.rows.filter((r:any)=>r.punch_type==='entry').length + item.rows.filter((r:any)=>r.punch_type==='exit').length;
-          const maxToday = item.schedule?.afternoon_enabled === true ? 4 : 2;
+          const completed = item.rows.length;
+          const maxToday = item.schedule?.afternoon_enabled === true ? 4 : (item.schedule?.enabled === false ? 0 : 2);
           return (
             <div className="card" key={item.employee.id} style={{margin:0}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
@@ -609,23 +622,30 @@ function Attendance({ companyId }: { companyId: string }) {
                 </div>
                 <div style={{fontSize:30}}>📁</div>
               </div>
-              <div style={{marginTop:10,display:'grid',gap:6}}>
-                <div><b>Pontos do dia:</b> {completed}/{maxToday}</div>
+
+              <div style={{marginTop:10,display:'grid',gap:7}}>
+                <div><b>Pontos do dia:</b> {completed}/{maxToday || '—'}</div>
                 <div style={{fontWeight:800,color:balance<0?'var(--danger)':balance>0?'var(--brand-2)':'inherit'}}>
                   Saldo do dia: {balance>0?'+':''}{balance} min
                 </div>
                 <div style={{fontWeight:800,color:item.totalBalance<0?'var(--danger)':item.totalBalance>0?'var(--brand-2)':'inherit'}}>
                   Saldo acumulado: {item.totalBalance>0?'+':''}{Math.round(item.totalBalance)} min
                 </div>
+
                 {item.alerts.slice(0,2).map((a:any)=>
                   <div key={a.id} className="helptext" style={{color:Number(a.minutes_delta)<0?'var(--danger)':'inherit'}}>⚠ {a.message}</div>
                 )}
               </div>
-              <button className="btn light wide" style={{marginTop:10}} onClick={()=>openEmployeeHistory(item.employee.id)}>
-                {openHistory===item.employee.id ? 'Fechar histórico' : '📁 Abrir histórico'}
-              </button>
+
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginTop:10}}>
+                <button className="btn light" onClick={()=>openEmployeeHistory(item.employee.id)}>
+                  {openHistory===item.employee.id ? 'Fechar pasta' : '📁 Histórico'}
+                </button>
+                {canReset && <button className="btn light" onClick={()=>resetAttendance('employee_day',item.employee.id,item.employee.full_name)}>🗑 Limpar dia</button>}
+              </div>
+
               {openHistory===item.employee.id && (
-                <div style={{marginTop:10,maxHeight:300,overflowY:'auto'}}>
+                <div style={{marginTop:10,maxHeight:300,overflowY:'auto',borderTop:'1px solid var(--border)',paddingTop:8}}>
                   {(historyCache[item.employee.id] || []).map((h:any)=>(
                     <div key={h.id} style={{borderTop:'1px solid var(--border)',padding:'8px 0'}}>
                       <div style={{display:'flex',justifyContent:'space-between',gap:8}}>
@@ -633,11 +653,7 @@ function Attendance({ companyId }: { companyId: string }) {
                         <span>{new Date(h.occurred_at).toLocaleString('pt-BR')}</span>
                       </div>
                       <div className="helptext">{h.location_address || h.location_label || 'Localização não identificada'}</div>
-                      {h.balance_minutes != null && Number(h.balance_minutes)!==0 && (
-                        <div style={{fontWeight:800,color:Number(h.balance_minutes)<0?'var(--danger)':'var(--brand-2)'}}>
-                          Saldo {Number(h.balance_minutes)>0?'+':''}{Math.round(Number(h.balance_minutes))} min
-                        </div>
-                      )}
+                      {h.balance_minutes != null && Number(h.balance_minutes)!==0 && <div style={{fontWeight:800,color:Number(h.balance_minutes)<0?'var(--danger)':'var(--brand-2)'}}>Saldo {Number(h.balance_minutes)>0?'+':''}{Math.round(Number(h.balance_minutes))} min</div>}
                     </div>
                   ))}
                   {!historyCache[item.employee.id]?.length && <div className="helptext">Nenhum histórico anterior.</div>}
@@ -655,20 +671,15 @@ function Attendance({ companyId }: { companyId: string }) {
           <tbody>
             {rows.map((r:any)=>(
               <tr key={r.id}>
-                <td>{r.employee_name_snapshot || r.employees?.full_name || '-'}</td>
+                <td>{r.employee_name_snapshot || '-'}</td>
                 <td><span className="tag">{r.punch_type==='entry'?'Entrada':'Saída'}</span></td>
                 <td>{new Date(r.occurred_at).toLocaleTimeString('pt-BR')}</td>
-                <td>
-                  <div>{r.location_address || r.location_label || 'Localização não identificada'}</div>
-                  {r.location_status==='inside' && <div className="helptext">Dentro do local autorizado{r.location_distance_m!=null?' • '+Math.round(r.location_distance_m)+' m':''}</div>}
-                  {r.location_status==='outside' && <div className="helptext" style={{color:'var(--danger)'}}>Fora do local autorizado{r.location_distance_m!=null?' • '+Math.round(r.location_distance_m)+' m':''}</div>}
-                </td>
+                <td>{r.location_address || r.location_label || 'Localização não identificada'}</td>
                 <td>
                   <div>{r.worked_minutes!=null?'Trabalhado: '+Math.round(r.worked_minutes)+' min':'—'}</div>
                   <div style={{fontWeight:800,color:Number(r.balance_minutes)<0?'var(--danger)':Number(r.balance_minutes)>0?'var(--brand-2)':'inherit'}}>
                     {r.balance_minutes==null?'Saldo —':'Saldo '+(Number(r.balance_minutes)>0?'+':'')+Math.round(Number(r.balance_minutes))+' min'}
                   </div>
-                  {r.schedule_status && <div className="helptext">{r.schedule_status==='late'?'Atraso':r.schedule_status==='overtime'?'Hora extra':r.schedule_status==='early_exit'?'Saída antecipada':r.schedule_status==='negative_balance'?'Saldo negativo':r.schedule_status==='positive_balance'?'Saldo positivo':'Normal'}</div>}
                 </td>
                 <td>{r.face_match_confidence!=null?Number(r.face_match_confidence).toFixed(1)+'%':'—'}</td>
               </tr>
@@ -679,7 +690,15 @@ function Attendance({ companyId }: { companyId: string }) {
       </div>
     </div>
   );
+
+  function exportCsv() {
+    const header='Funcionario,Tipo,Horario,Localizacao,Saldo(min),Offline\n';
+    const body=rows.map((r:any)=>[r.employee_name_snapshot||'',r.punch_type,r.occurred_at,(r.location_address||r.location_label||'Localização não identificada').replace(/,/g,' '),r.balance_minutes??'',r.offline?'sim':'nao'].join(',')).join('\n');
+    const blob=new Blob([header+body],{type:'text/csv;charset=utf-8'});
+    const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='ponto-'+date+'.csv'; a.click(); URL.revokeObjectURL(url);
+  }
 }
+
 
 
 /* ---------------------------- Locations ---------------------------- */
