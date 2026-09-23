@@ -6,6 +6,7 @@ type BeforeInstallPromptEvent = Event & {
 };
 
 type PwaManifest = {
+  id: string;
   name: string;
   short_name: string;
   start_url: string;
@@ -24,25 +25,65 @@ function isStandalone() {
   return window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
 }
 
+function getIdentity(startUrl: string) {
+  if (startUrl.startsWith('/rmd')) {
+    return {
+      name: 'RMD PontoFace — RMD',
+      shortName: 'RMD PontoFace',
+      icon: '/icons/rmd.svg',
+      theme: '#2563eb',
+      background: '#f3f6ff'
+    };
+  }
+  if (startUrl.startsWith('/admin')) {
+    return {
+      name: 'RMD PontoFace — Empresa',
+      shortName: 'PontoFace Empresa',
+      icon: '/icons/empresa.svg',
+      theme: '#7c3aed',
+      background: '#f7f3ff'
+    };
+  }
+  if (startUrl.startsWith('/funcionario/')) {
+    return {
+      name: 'RMD PontoFace — Funcionário',
+      shortName: 'PontoFace Funcionário',
+      icon: '/icons/funcionario.svg',
+      theme: '#0d9488',
+      background: '#effcfb'
+    };
+  }
+  return {
+    name: 'RMD PontoFace',
+    shortName: 'PontoFace',
+    icon: '/icon-192.svg',
+    theme: '#2563eb',
+    background: '#f3f6f4'
+  };
+}
+
 function updateManifest(startUrl: string) {
   const link = document.getElementById('app-manifest') as HTMLLinkElement | null;
   if (!link) return () => {};
 
+  const identity = getIdentity(startUrl);
+  const scope = startUrl.startsWith('/funcionario/') ? startUrl.split('?')[0] : startUrl.startsWith('/admin') ? '/admin' : startUrl.startsWith('/rmd') ? '/rmd' : '/';
+
   const manifest: PwaManifest = {
-    name: 'RMD PontoFace',
-    short_name: 'PontoFace',
+    id: startUrl,
+    name: identity.name,
+    short_name: identity.shortName,
     start_url: startUrl,
-    scope: startUrl.startsWith('/funcionario/') ? startUrl.split('?')[0] : '/',
+    scope,
     display: 'standalone',
-    background_color: '#f3f6f4',
-    theme_color: '#102f24',
+    background_color: identity.background,
+    theme_color: identity.theme,
     icons: [
-      { src: '/icon-192.svg', sizes: '192x192', type: 'image/svg+xml', purpose: 'any' },
-      { src: '/icon-512.svg', sizes: '512x512', type: 'image/svg+xml', purpose: 'any' },
-      { src: '/icon-192.svg', sizes: '192x192', type: 'image/svg+xml', purpose: 'maskable' },
-      { src: '/icon-512.svg', sizes: '512x512', type: 'image/svg+xml', purpose: 'maskable' }
+      { src: identity.icon, sizes: '192x192', type: 'image/svg+xml', purpose: 'any maskable' },
+      { src: identity.icon, sizes: '512x512', type: 'image/svg+xml', purpose: 'any maskable' }
     ]
   };
+
   const blobUrl = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' }));
   link.href = blobUrl;
   return () => URL.revokeObjectURL(blobUrl);
