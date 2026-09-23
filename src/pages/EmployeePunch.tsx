@@ -138,8 +138,10 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
           }
         } else {
           centeredFrames.current = Math.max(0, centeredFrames.current - 2);
-          if (phaseRef.current !== 'centering') phaseRef.current = 'centering';
-          if (phaseRef.current !== 'centering') setPhase('centering');
+          if (phaseRef.current !== 'centering') {
+            phaseRef.current = 'centering';
+            setPhase('centering');
+          }
           setHint('Não estou vendo seu rosto. Centralize na câmera.');
         }
       }
