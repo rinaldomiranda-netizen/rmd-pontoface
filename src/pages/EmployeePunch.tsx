@@ -408,6 +408,24 @@ function EmployeePunch() {
     }
   }
 
+  async function reverseGeocode(latitude: number, longitude: number): Promise<{ label: string | null; address: string | null }> {
+    try {
+      const url = 'https://photon.komoot.io/reverse?lang=pt&limit=1&lon=' + encodeURIComponent(String(longitude)) + '&lat=' + encodeURIComponent(String(latitude));
+      const r = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!r.ok) return { label: null, address: null };
+      const data = await r.json();
+      const p = data?.features?.[0]?.properties || {};
+      const street = [p.street, p.housenumber].filter(Boolean).join(', ');
+      const neighborhood = p.suburb || p.district || p.locality || '';
+      const city = p.city || p.town || p.village || '';
+      const state = p.state || '';
+      const parts = [street, neighborhood, city, state].filter(Boolean);
+      return { label: street || neighborhood || city || null, address: parts.length ? parts.join(' — ') : null };
+    } catch {
+      return { label: null, address: null };
+    }
+  }
+
   async function getGeolocation(): Promise<{ latitude: number | null; longitude: number | null; accuracy: number | null; location_label: string | null; location_address: string | null }> {
     const empty = { latitude: null, longitude: null, accuracy: null, location_label: null, location_address: null };
     if (!navigator.geolocation) return empty;
