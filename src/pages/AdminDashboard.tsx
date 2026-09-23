@@ -868,7 +868,7 @@ function Schedules({ companyId }: { companyId: string }) {
       .then(({ data }) => {
         const existing = data || [];
         setRows(days.map(([weekday]) => {
-          const found = existing.find((x: any) => x.weekday === weekday);
+          const found = existing.find((x: any) => Number(x.weekday) === weekday);
           return found || {
             weekday,
             enabled: weekday <= 5,
@@ -877,7 +877,7 @@ function Schedules({ companyId }: { companyId: string }) {
             entry_time: '08:00',
             break_start_time: '12:00',
             break_end_time: '14:00',
-            exit_time: '18:00',
+            exit_time: weekday === 6 ? '12:00' : '18:00',
             tolerance_late_minutes: 0,
             tolerance_early_minutes: 0,
             notify_employee_late: true,
@@ -907,33 +907,11 @@ function Schedules({ companyId }: { companyId: string }) {
     showToast('Jornada semanal salva.');
   }
 
-  function copyToAll(source: any) {
-    setRows(current => current.map(r => ({
-      ...r,
-      enabled: source.enabled,
-      morning_enabled: source.morning_enabled,
-      afternoon_enabled: source.afternoon_enabled,
-      entry_time: source.entry_time,
-      break_start_time: source.break_start_time,
-      break_end_time: source.break_end_time,
-      exit_time: source.exit_time,
-      tolerance_late_minutes: source.tolerance_late_minutes,
-      tolerance_early_minutes: source.tolerance_early_minutes,
-      notify_employee_late: source.notify_employee_late,
-      notify_employee_missing: source.notify_employee_missing,
-      notify_employee_overtime: source.notify_employee_overtime,
-      notify_company: source.notify_company
-    })));
-  }
-
   return (
     <div>
       <div className="card">
         <h2>Carga horária do funcionário</h2>
-        <p className="helptext">
-          Cada dia pode ser ativado ou desativado. A manhã e a tarde também têm ativação própria.
-          Período desativado não entra no cálculo da jornada e não gera cobrança de horário.
-        </p>
+        <p className="helptext">Ative ou inative o dia inteiro e controle separadamente os períodos da manhã e da tarde. Período inativo não entra no cálculo e não libera batidas.</p>
         <div className="field" style={{ maxWidth: 480 }}>
           <label>Funcionário</label>
           <select value={employeeId} onChange={e => setEmployeeId(e.target.value)}>
@@ -944,43 +922,39 @@ function Schedules({ companyId }: { companyId: string }) {
       </div>
 
       {employeeId && <div className="card">
-        <div style={{ display:'flex', justifyContent:'space-between', gap:10, alignItems:'center', marginBottom:10, flexWrap:'wrap' }}>
-          <b>Escala de segunda a domingo</b>
-          <button className="btn light" type="button" onClick={() => copyToAll(rows.find(r => r.weekday === 1) || rows[0])}>Copiar segunda para todos</button>
-        </div>
         <div style={{ overflowX:'auto' }}>
-          <table style={{ minWidth: 1160 }}>
+          <table style={{ minWidth: 1180 }}>
             <thead>
               <tr>
-                <th>Dia</th><th>Dia ativo</th><th>Manhã</th><th>Entrada</th><th>Início pausa</th>
-                <th>Tarde</th><th>Retorno</th><th>Saída</th><th>Tol. entrada</th><th>Tol. saída</th><th>Alertas</th>
+                <th>Dia</th>
+                <th>Dia ativo</th>
+                <th>Manhã</th>
+                <th>Entrada</th>
+                <th>Início pausa</th>
+                <th>Tarde</th>
+                <th>Retorno</th>
+                <th>Saída</th>
+                <th>Tol. entrada</th>
+                <th>Tol. saída</th>
+                <th>Alertas</th>
               </tr>
             </thead>
             <tbody>
               {rows.map(r => <tr key={r.weekday}>
                 <td><b>{days.find(d => d[0] === r.weekday)?.[1]}</b></td>
                 <td>
-                  <label className="helptext">
-                    <input type="checkbox" checked={!!r.enabled} onChange={e=>patchRow(r.weekday,{enabled:e.target.checked})}/>
-                    {r.enabled ? ' Ativo' : ' Inativo'}
-                  </label>
+                  <label className="helptext"><input type="checkbox" checked={!!r.enabled} onChange={e=>patchRow(r.weekday,{enabled:e.target.checked})}/>{r.enabled?' Ativo':' Inativo'}</label>
                 </td>
                 <td>
-                  <label className="helptext">
-                    <input type="checkbox" checked={r.morning_enabled !== false} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{morning_enabled:e.target.checked})}/>
-                    {r.morning_enabled !== false ? ' Ativa' : ' Inativa'}
-                  </label>
+                  <label className="helptext"><input type="checkbox" checked={r.morning_enabled !== false} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{morning_enabled:e.target.checked})}/>{r.morning_enabled !== false?' Ativa':' Inativa'}</label>
                 </td>
                 <td><input type="time" value={r.entry_time || ''} disabled={!r.enabled || r.morning_enabled === false} onChange={e=>patchRow(r.weekday,{entry_time:e.target.value})}/></td>
-                <td><input type="time" value={r.break_start_time || ''} disabled={!r.enabled || r.afternoon_enabled !== true} onChange={e=>patchRow(r.weekday,{break_start_time:e.target.value})}/></td>
+                <td><input type="time" value={r.break_start_time || ''} disabled={!r.enabled || r.morning_enabled === false || r.afternoon_enabled !== true} onChange={e=>patchRow(r.weekday,{break_start_time:e.target.value})}/></td>
                 <td>
-                  <label className="helptext">
-                    <input type="checkbox" checked={r.afternoon_enabled === true} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{afternoon_enabled:e.target.checked})}/>
-                    {r.afternoon_enabled === true ? ' Ativa' : ' Inativa'}
-                  </label>
+                  <label className="helptext"><input type="checkbox" checked={r.afternoon_enabled === true} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{afternoon_enabled:e.target.checked})}/>{r.afternoon_enabled === true?' Ativa':' Inativa'}</label>
                 </td>
                 <td><input type="time" value={r.break_end_time || ''} disabled={!r.enabled || r.afternoon_enabled !== true} onChange={e=>patchRow(r.weekday,{break_end_time:e.target.value})}/></td>
-                <td><input type="time" value={r.exit_time || ''} disabled={!r.enabled || r.afternoon_enabled !== true} onChange={e=>patchRow(r.weekday,{exit_time:e.target.value})}/></td>
+                <td><input type="time" value={r.exit_time || ''} disabled={!r.enabled || (r.morning_enabled === false && r.afternoon_enabled !== true)} onChange={e=>patchRow(r.weekday,{exit_time:e.target.value})}/></td>
                 <td><input type="number" min="0" max="120" style={{width:82}} value={r.tolerance_late_minutes ?? 0} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{tolerance_late_minutes:Number(e.target.value)})}/></td>
                 <td><input type="number" min="0" max="120" style={{width:82}} value={r.tolerance_early_minutes ?? 0} disabled={!r.enabled} onChange={e=>patchRow(r.weekday,{tolerance_early_minutes:Number(e.target.value)})}/></td>
                 <td>
@@ -995,7 +969,7 @@ function Schedules({ companyId }: { companyId: string }) {
         </div>
         <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginTop:12}}>
           <button className="btn green" disabled={saving} onClick={save}>{saving ? 'Salvando...' : 'Salvar jornada'}</button>
-          <span className="helptext">Exemplo: segunda a sexta 08:00–12:00 / 14:00–18:00; sábado somente 08:00–12:00, deixando a tarde inativa.</span>
+          <span className="helptext">Ex.: sábado com somente manhã: Ativo + Manhã Ativa + 08:00–12:00 + Tarde Inativa.</span>
         </div>
       </div>}
     </div>
