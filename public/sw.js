@@ -1,4 +1,4 @@
-const CACHE = 'rmd-pontoface-v3';
+const CACHE = 'rmd-pontoface-v4';
 const APP = ['/', '/index.html', '/manifest.webmanifest'];
 
 self.addEventListener('install', e => {
