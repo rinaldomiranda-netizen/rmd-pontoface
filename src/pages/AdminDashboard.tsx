@@ -511,6 +511,7 @@ function Attendance({ companyId }: { companyId: string }) {
                 <td>{r.identification_method}{r.offline ? ' (offline)' : ''}</td>
                 <td>
                   {r.location_label || r.location_address || 'Local não identificado'}
+                  {(r.location_address || r.location_label) && <div><a href={'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(r.location_address || r.location_label)} target="_blank" rel="noreferrer" className="helptext">Abrir no mapa</a></div>}
                   {r.location_status === 'inside' && <div className="helptext">Dentro do local autorizado{r.location_distance_m != null ? ' • ' + Math.round(r.location_distance_m) + 'm' : ''}</div>}
                   {r.location_status === 'outside' && <div className="helptext" style={{ color: 'var(--danger)' }}>Fora do raio autorizado{r.location_distance_m != null ? ' • ' + Math.round(r.location_distance_m) + 'm' : ''}</div>}
                 </td>
