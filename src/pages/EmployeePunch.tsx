@@ -73,7 +73,7 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
   const [hint, setHint] = React.useState('Preparando a câmera...');
   const rafRef = React.useRef<number | null>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
-  const landmarkerRef = React.useRef<Awaited<ReturnType<typeof loadMediaPipeFaceLandmarker>> | null>(null);
+  const landmarkerRef = React.useRef<any>(null);
   const doneRef = React.useRef(false);
   const startedAtRef = React.useRef(0);
   const lastDetectAtRef = React.useRef(0);
@@ -81,7 +81,6 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
   const eyesOpenFramesRef = React.useRef(0);
   const blinkStartedAtRef = React.useRef(0);
   const blinkSeenRef = React.useRef(false);
-  const lastTimestampRef = React.useRef(0);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -129,7 +128,6 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
         setPhase('ready');
         setHint('Olhe para a câmera e mantenha os olhos abertos.');
         startedAtRef.current = Date.now();
-        lastTimestampRef.current = 0;
         loop();
       } catch (error) {
         console.error('liveness init error', error);
@@ -188,12 +186,7 @@ function LivenessCapture({ onDone, onCancel }: { onDone: (r: LivenessOutcome) =>
 
       try {
         if (video && video.readyState >= 2 && landmarker) {
-          const now = performance.now();
-          // MediaPipe VIDEO exige timestamps crescentes.
-          const timestamp = Math.max(now, lastTimestampRef.current + 1);
-          lastTimestampRef.current = timestamp;
-
-          const result = await detectBlinkFrame(landmarker, video, timestamp);
+          const result = detectBlinkFrame(landmarker, video);
 
           if (result) {
             lastDetectAtRef.current = Date.now();
