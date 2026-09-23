@@ -14,59 +14,51 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Move company alerts to dashboard and attendance only
+      - name: Ensure entry alert placement
         shell: python
         run: |
           from pathlib import Path
+          import re
 
           p = Path('src/pages/AdminDashboard.tsx')
           s = p.read_text(encoding='utf-8')
 
-          # Keep the company alert state and refresh logic, but remove the
-          # global alert banner that appeared on every section of the dashboard.
-          old = '''          {companyAlerts.length > 0 && (\n            <div className="card" style={{ border: '1px solid #e2b65c', background: '#fff8df' }}>\n              <h2 style={{ marginBottom: 8 }}>Alertas de jornada</h2>\n              {companyAlerts.slice(0, 5).map((a: any) => (\n                <div key={a.id} style={{ padding: '9px 0', borderBottom: '1px solid #ead99c' }}>\n                  <b>{a.employees?.full_name || a.employee_name_snapshot || 'Funcionário'}</b>\n                  <div style={{ marginTop: 3 }}>{a.message}</div>\n                  {a.minutes_delta != null && <div className={Number(a.minutes_delta) < 0 ? 'tag danger' : 'tag warn'} style={{ marginTop: 4 }}>\n                    {Number(a.minutes_delta) > 0 ? '+' : ''}{Math.round(Number(a.minutes_delta))} min\n                  </div>}\n                </div>\n              ))}\n            </div>\n          )}\n'''
-          if old in s:
-              s = s.replace(old, '', 1)
-
-          # Only pass the company alerts into the two places where the company
-          # needs to see them: the initial dashboard and Controle de Presença.
-          s = s.replace("{section === 'overview' && <Overview companyId={companyId} />}", "{section === 'overview' && <Overview companyId={companyId} companyAlerts={companyAlerts} />}", 1)
-          s = s.replace("{section === 'attendance' && <Attendance companyId={companyId} role={role} />}", "{section === 'attendance' && <Attendance companyId={companyId} role={role} companyAlerts={companyAlerts} />}", 1)
-
-          # Overview: alert directly below the KPI cards, only on the home dashboard.
-          old = "function Overview({ companyId }: { companyId: string }) {"
-          new = "function Overview({ companyId, companyAlerts }: { companyId: string; companyAlerts: any[] }) {"
-          s = s.replace(old, new, 1)
-
-          old = "  if (loading) return <p className=\"empty-row\">Carregando...</p>;\n  return (\n    <div className=\"kpis\">"
-          new = "  if (loading) return <p className=\"empty-row\">Carregando...</p>;\n  return (\n    <>\n      <div className=\"kpis\">"
-          if old in s:
-              s = s.replace(old, new, 1)
-
-          old = "      <div className=\"kpi\"><small>Ocorrências (24h)</small><b>{stats.occurrences}</b></div>\n    </div>\n  );\n}\n"
-          new = "      <div className=\"kpi\"><small>Ocorrências (24h)</small><b>{stats.occurrences}</b></div>\n      </div>\n      <CompanyEntryAlerts alerts={companyAlerts} />\n    </>\n  );\n}\n"
-          if old in s:
-              s = s.replace(old, new, 1)
-
-          # Attendance receives the same alert component, immediately above the
-          # date/filter controls. Other sections receive nothing.
-          old = "function Attendance({ companyId, role }: { companyId: string; role: string }) {"
-          new = "function Attendance({ companyId, role, companyAlerts }: { companyId: string; role: string; companyAlerts: any[] }) {"
-          s = s.replace(old, new, 1)
-
-          old = "  return (\n    <div>\n      <div className=\"card\" style={{display:'flex',gap:12,alignItems:'flex-end',flexWrap:'wrap'}}>{"
-          # The exact line in the current file has no extra brace; handle the real form below.
-          old2 = "  return (\n    <div>\n      <div className=\"card\" style={{display:'flex',gap:12,alignItems:'flex-end',flexWrap:'wrap'}}>"
-          new2 = "  return (\n    <div>\n      <CompanyEntryAlerts alerts={companyAlerts} />\n      <div className=\"card\" style={{display:'flex',gap:12,alignItems:'flex-end',flexWrap:'wrap'}}>"
-          if old2 in s:
-              s = s.replace(old2, new2, 1)
-
-          # Add a single reusable presentation component. Filter strictly to
-          # late-entry alerts so exit/overtime/missing-punch alerts never appear.
-          marker = "/* ---------------------------- Attendance ---------------------------- */"
-          component = '''function CompanyEntryAlerts({ alerts }: { alerts: any[] }) {\n  const entryAlerts = (alerts || []).filter((a: any) => {\n    const message = String(a?.message || '').toLowerCase();\n    const type = String(a?.alert_type || a?.type || '').toLowerCase();\n    const delta = Number(a?.minutes_delta);\n    return (type.includes('late') || type.includes('entry') || message.includes('entrada') || message.includes('atras')) && delta > 0;\n  }).slice(0, 5);\n\n  if (!entryAlerts.length) return null;\n  return (\n    <div className=\"card\" style={{ border: '1px solid #e2b65c', background: '#fff8df', marginBottom: 14 }}>\n      <h2 style={{ marginBottom: 8 }}>⚠ Alertas de entrada</h2>\n      {entryAlerts.map((a: any) => (\n        <div key={a.id} style={{ padding: '9px 0', borderBottom: '1px solid #ead99c' }}>\n          <b>{a.employees?.full_name || a.employee_name_snapshot || 'Funcionário'}</b>\n          <div style={{ marginTop: 3 }}>{a.message}</div>\n          <div className=\"tag danger\" style={{ marginTop: 4 }}>Atraso na entrada: {Math.round(deltaMinutes(a.minutes_delta))} min</div>\n        </div>\n      ))}\n    </div>\n  );\n}\n\nfunction deltaMinutes(value: any) {\n  const n = Number(value);\n  return Number.isFinite(n) ? Math.max(0, n) : 0;\n}\n\n'''
-          if marker in s and 'function CompanyEntryAlerts' not in s:
+          # The alert component must exist exactly once and must only show
+          # genuine late-entry alerts (positive minutes_delta).
+          if 'function CompanyEntryAlerts' not in s:
+              marker = '/* ---------------------------- Attendance ---------------------------- */'
+              component = '''function CompanyEntryAlerts({ alerts }: { alerts: any[] }) {\n  const entryAlerts = (alerts || []).filter((a: any) => {\n    const message = String(a?.message || '').toLowerCase();\n    const type = String(a?.alert_type || a?.type || '').toLowerCase();\n    const delta = Number(a?.minutes_delta);\n    return (type.includes('late') || type.includes('entry') || message.includes('entrada') || message.includes('atras')) && delta > 0;\n  }).slice(0, 5);\n  if (!entryAlerts.length) return null;\n  return (\n    <div className=\"card\" style={{ border: '1px solid #e2b65c', background: '#fff8df', marginBottom: 14 }}>\n      <h2 style={{ marginBottom: 8 }}>⚠ Alertas de entrada</h2>\n      {entryAlerts.map((a: any) => (\n        <div key={a.id} style={{ padding: '9px 0', borderBottom: '1px solid #ead99c' }}>\n          <b>{a.employees?.full_name || a.employee_name_snapshot || 'Funcionário'}</b>\n          <div style={{ marginTop: 3 }}>{a.message}</div>\n          <div className=\"tag danger\" style={{ marginTop: 4 }}>Atraso na entrada: {Math.round(Math.max(0, Number(a.minutes_delta) || 0))} min</div>\n        </div>\n      ))}\n    </div>\n  );\n}\n\n'''
               s = s.replace(marker, component + marker, 1)
+
+          # Ensure both intended screens receive the alert data.
+          s = s.replace(
+              "{section === 'overview' && <Overview companyId={companyId} />}",
+              "{section === 'overview' && <Overview companyId={companyId} companyAlerts={companyAlerts} />}", 1
+          )
+          s = s.replace(
+              "{section === 'attendance' && <Attendance companyId={companyId} role={role} />}",
+              "{section === 'attendance' && <Attendance companyId={companyId} role={role} companyAlerts={companyAlerts} />}", 1
+          )
+
+          # Insert the alert immediately inside Attendance's top-level return.
+          # Regex is used so harmless formatting changes cannot make this patch miss.
+          if 'function Attendance({ companyId, role, companyAlerts' not in s:
+              s = s.replace(
+                  'function Attendance({ companyId, role }: { companyId: string; role: string }) {',
+                  'function Attendance({ companyId, role, companyAlerts }: { companyId: string; role: string; companyAlerts: any[] }) {', 1
+              )
+
+          marker = 'function Attendance({ companyId, role, companyAlerts }: { companyId: string; role: string; companyAlerts: any[] }) {'
+          pos = s.find(marker)
+          if pos >= 0:
+              ret = s.find('  return (', pos)
+              if ret >= 0:
+                  div = s.find('    <div>', ret)
+                  if div >= 0 and div < s.find('/* ----------------------------', ret + 10):
+                      insert = '      <CompanyEntryAlerts alerts={companyAlerts} />\n'
+                      after_div = div + len('    <div>\n')
+                      if insert not in s[ret:after_div + 200]:
+                          s = s[:after_div] + insert + s[after_div:]
 
           p.write_text(s, encoding='utf-8')
       - name: Commit patch
@@ -79,5 +71,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/pages/AdminDashboard.tsx .github/workflows/fix-attendance-live.yml
-          git commit -m "fix: show company entry alerts only on dashboard and attendance"
+          git commit -m "fix: show entry alert on dashboard and attendance"
           git push
