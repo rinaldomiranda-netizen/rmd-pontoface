@@ -34,6 +34,17 @@ jobs:
           </div>'''
           if old in s:
               s = s.replace(old, new, 1)
+
+          # Professional company header: the name comes from the editable
+          # companies.name field already used by the Company settings screen.
+          old_header = '<h1>{navLabel(section)}</h1>'
+          new_header = '''<div className="company-header">
+              <div className="company-header-name">{labels.name || 'Minha Empresa'}</div>
+              <div className="company-header-section">{navLabel(section)}</div>
+            </div>'''
+          if old_header in s and 'className="company-header"' not in s:
+              s = s.replace(old_header, new_header, 1)
+
           p.write_text(s, encoding='utf-8')
 
           # ---------------- Employee mobile app ----------------
@@ -59,16 +70,56 @@ jobs:
           for name in ['public/icon.svg','public/icon-192.svg','public/icon-512.svg']:
               Path(name).write_text(icon, encoding='utf-8')
 
-          # Browser icon.
           idx = Path('index.html')
           x = idx.read_text(encoding='utf-8').replace('/icon-192.png','/icon.svg')
           idx.write_text(x, encoding='utf-8')
 
-          # Static manifest icon/theme.
           man = Path('public/manifest.webmanifest')
           if man.exists():
               m = man.read_text(encoding='utf-8').replace('/icon-192.png','/icon-192.svg').replace('/icon-512.png','/icon-512.svg').replace('"type": "image/png"','"type": "image/svg+xml"').replace('"theme_color": "#102f24"','"theme_color": "#2563eb"')
               man.write_text(m, encoding='utf-8')
+
+      - name: Fix company dashboard layout
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('public/mobile-dashboard-fix.css')
+          p.write_text(r'''/* RMD PontoFace — professional company dashboard for tablet/mobile. */
+@media (max-width: 1100px), (pointer: coarse) {
+  .admin-shell { display:block !important; min-height:100vh !important; }
+  .admin-nav { display:none !important; }
+  .admin-main { width:100% !important; max-width:100% !important; min-width:0 !important; padding:12px 14px 48px !important; overflow:visible !important; }
+  .admin-topbar { display:flex !important; align-items:center !important; gap:12px !important; margin:0 0 10px !important; padding:14px 16px !important; border:1px solid var(--border) !important; border-radius:16px !important; background:var(--surface) !important; box-shadow:0 4px 18px rgba(15,23,42,.07) !important; }
+  .admin-topbar .company-header { min-width:0 !important; flex:1 1 auto !important; display:flex !important; flex-direction:column !important; gap:2px !important; }
+  .company-header-name { display:block !important; color:var(--text) !important; font-size:20px !important; font-weight:900 !important; line-height:1.15 !important; white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important; }
+  .company-header-section { display:block !important; color:var(--muted) !important; font-size:13px !important; font-weight:700 !important; }
+  .admin-topbar > .btn.light:last-child { display:none !important; }
+  .admin-topbar .back-btn { flex:0 0 auto !important; }
+
+  .mobile-nav { display:block !important; position:relative !important; z-index:200 !important; margin:0 0 16px !important; overflow:visible !important; }
+  .mobile-menu-trigger { display:inline-flex !important; align-items:center !important; justify-content:center !important; width:50px !important; height:46px !important; padding:0 !important; border:1px solid var(--border) !important; border-radius:12px !important; background:var(--surface) !important; color:var(--text) !important; font-weight:900 !important; box-shadow:0 3px 12px rgba(15,23,42,.10) !important; }
+  .mobile-menu-trigger span { display:none !important; }
+  .mobile-menu-trigger::before { content:'⋮' !important; font-size:30px !important; line-height:1 !important; }
+  .mobile-menu-trigger { font-size:0 !important; }
+
+  .mobile-menu-popover { display:flex !important; flex-direction:column !important; gap:3px !important; position:absolute !important; left:0 !important; top:calc(100% + 8px) !important; right:auto !important; width:min(340px, calc(100vw - 28px)) !important; max-height:min(70vh, 620px) !important; overflow-y:auto !important; overflow-x:hidden !important; overscroll-behavior:contain !important; -webkit-overflow-scrolling:touch !important; z-index:9999 !important; padding:8px !important; border:1px solid var(--border) !important; border-radius:14px !important; background:var(--surface) !important; box-shadow:0 18px 45px rgba(15,23,42,.22) !important; }
+  .mobile-menu-popover button { display:flex !important; align-items:center !important; width:100% !important; min-height:46px !important; flex:0 0 auto !important; margin:0 !important; padding:11px 13px !important; border:0 !important; border-radius:9px !important; background:transparent !important; color:var(--text) !important; text-align:left !important; font-size:14px !important; font-weight:750 !important; }
+  .mobile-menu-popover button.active { background:var(--brand-2) !important; color:#fff !important; }
+
+  .kpis { position:relative !important; z-index:1 !important; display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)) !important; gap:10px !important; margin:0 0 14px !important; visibility:visible !important; opacity:1 !important; }
+  .kpi { min-width:0 !important; padding:15px !important; visibility:visible !important; opacity:1 !important; }
+  .kpi small { font-size:11px !important; line-height:1.35 !important; }
+  .kpi b { font-size:28px !important; }
+  .admin-nav button { display:none !important; }
+  .mobile-nav-back { display:block !important; margin-bottom:12px !important; }
+}
+@media (max-width:420px) {
+  .admin-main { padding-left:10px !important; padding-right:10px !important; }
+  .kpis { gap:8px !important; }
+  .kpi { padding:13px !important; }
+  .mobile-menu-popover { width:min(310px, calc(100vw - 20px)) !important; max-height:calc(100vh - 150px) !important; }
+}
+''', encoding='utf-8')
 
       - name: Commit visual update
         shell: bash
@@ -79,6 +130,6 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/pages/AdminDashboard.tsx src/pages/EmployeePunch.tsx src/styles.css index.html public/manifest.webmanifest public/icon.svg public/icon-192.svg public/icon-512.svg
-          git commit -m "feat: differentiate RMD company and employee themes"
+          git add src/pages/AdminDashboard.tsx src/pages/EmployeePunch.tsx src/styles.css index.html public/manifest.webmanifest public/icon.svg public/icon-192.svg public/icon-512.svg public/mobile-dashboard-fix.css
+          git commit -m "fix: professional company dashboard header and mobile menu"
           git push
