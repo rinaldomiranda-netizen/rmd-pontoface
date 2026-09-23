@@ -279,56 +279,43 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
       if (!detection) throw new Error('FACE_NOT_FOUND');
       const descriptor = Array.from(detection.descriptor);
 
-      setStatus('Enviando foto de referência...');
-      const imageResponse = await fetch(captured);
-      if (!imageResponse.ok) throw new Error('IMAGE_READ_FAILED');
-      const blob = await imageResponse.blob();
-      if (!blob.size) throw new Error('IMAGE_READ_FAILED');
-      const path = `${employeeId}/reference-${Date.now()}.jpg`;
-      const uploadResult = await Promise.race([
-        supabase.storage
-          .from('facial-references')
-          .upload(path, blob, { contentType: 'image/jpeg' }),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('IMAGE_UPLOAD_TIMEOUT')), 20000))
-      ]);
-      const { error: uploadError } = uploadResult;
-      if (uploadError) throw new Error(`IMAGE_UPLOAD_FAILED: ${uploadError.message}`);
-
       setStatus('Confirmando cadastro facial...');
-      const rpcPromise = supabase.rpc('complete_employee_face_enrollment', {
-        p_company_id: companyId,
-        p_employee_id: employeeId,
-        p_descriptor: descriptor,
-        p_reference_image_path: path
+      const enrollPromise = supabase.functions.invoke('complete-face-enrollment', {
+        body: {
+          company_id: companyId,
+          employee_id: employeeId,
+          descriptor,
+          photo_data_url: captured
+        }
       });
 
-      const rpcResult = await Promise.race([
-        rpcPromise,
+      const enrollResult = await Promise.race([
+        enrollPromise,
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('ENROLL_TIMEOUT')), 20000)
+          setTimeout(() => reject(new Error('ENROLL_TIMEOUT')), 25000)
         )
       ]);
 
-      const { data, error: rpcError } = rpcResult as {
-        data: { ok?: boolean; error?: string; profile_id?: string } | null;
-        error: { message?: string; code?: string } | null;
+      const { data, error: enrollError } = enrollResult as {
+        data: { ok?: boolean; error?: string } | null;
+        error: { message?: string } | null;
       };
 
-      if (rpcError) {
-        console.error('complete_employee_face_enrollment error', rpcError);
-        const message = rpcError.message || '';
+      if (enrollError) {
+        console.error('complete-face-enrollment error', enrollError);
+        const message = enrollError.message || '';
         if (message.includes('forbidden')) {
           setStatus('Você não tem permissão para cadastrar o rosto.');
         } else if (message.includes('employee_not_found_or_inactive')) {
           setStatus('Funcionário não encontrado ou inativo.');
-        } else if (message.includes('reference_image_not_ready')) {
-          setStatus('A foto não foi confirmada no armazenamento. Tire outra foto e tente novamente.');
         } else if (message.includes('invalid_descriptor')) {
           setStatus('O rosto não pôde ser processado. Tire outra foto com boa iluminação.');
-        } else if (message.includes('ENROLL_TIMEOUT')) {
-          setStatus('A confirmação demorou mais que o esperado. Tente novamente.');
+        } else if (message.includes('invalid_photo')) {
+          setStatus('A foto não pôde ser enviada. Tire outra foto.');
+        } else if (message.includes('image_upload_failed')) {
+          setStatus('Não foi possível salvar a foto no sistema.');
         } else {
-          setStatus('Não foi possível confirmar o cadastro facial.');
+          setStatus('Não foi possível concluir o cadastro facial.');
         }
         return;
       }
