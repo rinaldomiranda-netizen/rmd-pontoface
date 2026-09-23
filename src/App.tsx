@@ -1,6 +1,5 @@
 import React from 'react';
 import { supabase } from './lib/supabaseClient';
-import EmployeePunch from './pages/EmployeePunch';
 import EmployeePunchBalance from './pages/EmployeePunchBalance';
 import AdminAuth from './pages/AdminAuth';
 import AdminDashboard from './pages/AdminDashboard';
