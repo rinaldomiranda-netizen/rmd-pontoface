@@ -157,6 +157,34 @@ function Employees({ companyId, role, labels }: { companyId: string; role: strin
     load();
   }
 
+  async function deleteFace(id: string, name: string) {
+    if (!window.confirm(`Excluir a foto/cadastro facial de ${name}? Essa ação remove o cadastro biométrico, mas não exclui o funcionário.`)) return;
+    const { data, error } = await supabase.functions.invoke('delete-employee-data', {
+      body: { company_id: companyId, employee_id: id, action: 'photo' }
+    });
+    if (error || !data?.ok) {
+      alert(error?.message || friendlyError(data?.error));
+      return;
+    }
+    showToast('Foto e cadastro facial excluídos.');
+    load();
+  }
+
+  async function deleteEmployee(id: string, name: string) {
+    if (!window.confirm(`Excluir permanentemente o funcionário ${name}? Os dados pessoais, acesso e cadastro facial serão removidos. O histórico de ponto será preservado sem o vínculo com o funcionário.`)) return;
+    const { data, error } = await supabase.functions.invoke('delete-employee-data', {
+      body: { company_id: companyId, employee_id: id, action: 'employee' }
+    });
+    if (error || !data?.ok) {
+      alert(error?.message || friendlyError(data?.error));
+      return;
+    }
+    setEnrollFor(null);
+    setLinkFor(null);
+    showToast('Funcionário excluído.');
+    load();
+  }
+
   async function generateLink(id: string, name: string) {
     const res = await callFunction<{ path?: string; error?: string }>('generate-employee-access', { employee_id: id });
     if (!res.ok || !res.data.path) { alert(friendlyError((res.data as any)?.error)); return; }
@@ -203,7 +231,9 @@ function Employees({ companyId, role, labels }: { companyId: string; role: strin
                 <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {canManage && <button className="btn light" onClick={() => generateLink(e.id, e.full_name)}>Gerar link</button>}
                   {canManage && <button className="btn light" onClick={() => setEnrollFor({ id: e.id, name: e.full_name })}>Cadastrar rosto</button>}
+                  {canManage && e.facial_status === 'enrolled' && <button className="btn light" onClick={() => deleteFace(e.id, e.full_name)}>Excluir foto</button>}
                   {canManage && <button className="btn light" onClick={() => toggleActive(e.id, e.active)}>{e.active ? 'Desativar' : 'Ativar'}</button>}
+                  {canManage && <button className="btn danger" onClick={() => deleteEmployee(e.id, e.full_name)}>Excluir funcionário</button>
                 </td>
               </tr>
             ))}
