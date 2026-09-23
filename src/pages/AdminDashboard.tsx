@@ -100,24 +100,10 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
             <button className="btn light" onClick={onLogout}>Sair</button>
           </div>
           {pwa.showIosHint && <div className="fallback"><p style={{ margin: 0 }}>No iPhone ou iPad: toque no ícone de <b>Compartilhar</b> e depois em <b>"Adicionar à Tela de Início"</b>.</p><button className="link" onClick={() => pwa.setShowIosHint(false)}>Entendi</button></div>}
-          {companyAlerts.length > 0 && (
-            <div className="card" style={{ border: '1px solid #e2b65c', background: '#fff8df' }}>
-              <h2 style={{ marginBottom: 8 }}>Alertas de jornada</h2>
-              {companyAlerts.slice(0, 5).map((a: any) => (
-                <div key={a.id} style={{ padding: '9px 0', borderBottom: '1px solid #ead99c' }}>
-                  <b>{a.employees?.full_name || a.employee_name_snapshot || 'Funcionário'}</b>
-                  <div style={{ marginTop: 3 }}>{a.message}</div>
-                  {a.minutes_delta != null && <div className={Number(a.minutes_delta) < 0 ? 'tag danger' : 'tag warn'} style={{ marginTop: 4 }}>
-                    {Number(a.minutes_delta) > 0 ? '+' : ''}{Math.round(Number(a.minutes_delta))} min
-                  </div>}
-                </div>
-              ))}
-            </div>
-          )}
           {section === 'overview' ? <div className="mobile-nav">{nav}</div> : <div className="mobile-nav-back"><button className="btn light wide" onClick={() => setSection('overview')}>← Voltar ao menu</button></div>}
-          {section === 'overview' && <Overview companyId={companyId} />}
+          {section === 'overview' && <Overview companyId={companyId} companyAlerts={companyAlerts} />}
           {section === 'employees' && <Employees companyId={companyId} role={role} labels={labels} />}
-          {section === 'attendance' && <Attendance companyId={companyId} role={role} />}
+          {section === 'attendance' && <Attendance companyId={companyId} role={role} companyAlerts={companyAlerts} />}
           {section === 'locations' && <Locations companyId={companyId} />}
           {section === 'access' && <Access companyId={companyId} />}
           {section === 'import' && <BulkImport companyId={companyId} labels={labels} />}
@@ -134,7 +120,7 @@ export default function AdminDashboard({ companyId, role, onLogout }: Props) {
 }
 
 /* ---------------------------- Overview ---------------------------- */
-function Overview({ companyId }: { companyId: string }) {
+function Overview({ companyId, companyAlerts }: { companyId: string; companyAlerts: any[] }) {
   const [stats, setStats] = React.useState({ total: 0, working: 0, out: 0, pending: 0, occurrences: 0 });
   const [loading, setLoading] = React.useState(true);
 
@@ -162,13 +148,16 @@ function Overview({ companyId }: { companyId: string }) {
 
   if (loading) return <p className="empty-row">Carregando...</p>;
   return (
-    <div className="kpis">
+    <>
+      <div className="kpis">
       <div className="kpi"><small>Total de funcionários</small><b>{stats.total}</b></div>
       <div className="kpi"><small>Trabalhando</small><b>{stats.working}</b></div>
       <div className="kpi"><small>Fora</small><b>{stats.out}</b></div>
       <div className="kpi"><small>Pendentes offline</small><b>{stats.pending}</b></div>
       <div className="kpi"><small>Ocorrências (24h)</small><b>{stats.occurrences}</b></div>
-    </div>
+      </div>
+      <CompanyEntryAlerts alerts={companyAlerts} />
+    </>
   );
 }
 
@@ -522,8 +511,36 @@ function FaceEnroll({ companyId, employeeId, employeeName, onDone, onCancel }: {
     </div>
   );
 }
+function CompanyEntryAlerts({ alerts }: { alerts: any[] }) {
+  const entryAlerts = (alerts || []).filter((a: any) => {
+    const message = String(a?.message || '').toLowerCase();
+    const type = String(a?.alert_type || a?.type || '').toLowerCase();
+    const delta = Number(a?.minutes_delta);
+    return (type.includes('late') || type.includes('entry') || message.includes('entrada') || message.includes('atras')) && delta > 0;
+  }).slice(0, 5);
+
+  if (!entryAlerts.length) return null;
+  return (
+    <div className="card" style={{ border: '1px solid #e2b65c', background: '#fff8df', marginBottom: 14 }}>
+      <h2 style={{ marginBottom: 8 }}>⚠ Alertas de entrada</h2>
+      {entryAlerts.map((a: any) => (
+        <div key={a.id} style={{ padding: '9px 0', borderBottom: '1px solid #ead99c' }}>
+          <b>{a.employees?.full_name || a.employee_name_snapshot || 'Funcionário'}</b>
+          <div style={{ marginTop: 3 }}>{a.message}</div>
+          <div className="tag danger" style={{ marginTop: 4 }}>Atraso na entrada: {Math.round(deltaMinutes(a.minutes_delta))} min</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function deltaMinutes(value: any) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(0, n) : 0;
+}
+
 /* ---------------------------- Attendance ---------------------------- */
-function Attendance({ companyId, role }: { companyId: string; role: string }) {
+function Attendance({ companyId, role, companyAlerts }: { companyId: string; role: string; companyAlerts: any[] }) {
   const showToast = useToast();
   const [rows, setRows] = React.useState<any[]>([]);
   const [employees, setEmployees] = React.useState<any[]>([]);
@@ -652,6 +669,7 @@ function Attendance({ companyId, role }: { companyId: string; role: string }) {
 
   return (
     <div>
+      <CompanyEntryAlerts alerts={companyAlerts} />
       <div className="card" style={{display:'flex',gap:12,alignItems:'flex-end',flexWrap:'wrap'}}>
         <div className="field" style={{margin:0}}><label>Dia exibido</label><input type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>
         <button className="btn light" onClick={exportCsv}>Exportar CSV</button>
