@@ -288,7 +288,7 @@ function EmployeePunch() {
   const [activeAlert, setActiveAlert] = React.useState<any>(null);
   const seenAlertIdsRef = React.useRef<Set<string>>(new Set());
   const locationPromiseRef = React.useRef<Promise<{ latitude: number | null; longitude: number | null; accuracy: number | null; location_label: string | null; location_address: string | null }> | null>(null);
-  const [labels, setLabels] = React.useState({ name: 'RMD PontoFace', person_label: 'Funcionário', entry_label: 'Bater entrada', exit_label: 'Bater saída', exit_enabled: true, logo_url: null as string | null });
+  const [labels, setLabels] = React.useState({ name: 'RMD PontoFace', person_label: 'Funcionário', entry_label: 'Bater entrada', exit_label: 'Bater saída', exit_enabled: true, presence_mode: 'both', logo_url: null as string | null });
   const pwa = usePwaInstall(`${location.pathname}${location.search}`);
 
   React.useEffect(() => {
@@ -340,6 +340,28 @@ function EmployeePunch() {
 
     return () => { cancelled = true; };
   }, [companyId, employeeId, token]);
+  const autoPresenceDateRef = React.useRef('');
+  const autoPresenceTriggeredRef = React.useRef(false);
+
+  React.useEffect(() => {
+    const mode = labels.presence_mode || (labels.exit_enabled === false ? 'entry' : 'both');
+    const todayDate = dashboard?.today?.date || '';
+    if (!todayDate || mode !== 'entry' || !dashboard || !navigator.onLine) return;
+
+    if (autoPresenceDateRef.current !== todayDate) {
+      autoPresenceDateRef.current = todayDate;
+      autoPresenceTriggeredRef.current = false;
+    }
+
+    const rows = Array.isArray(dashboard.today?.rows) ? dashboard.today.rows : [];
+    const alreadyRegistered = rows.some((r: any) => r.punch_type === 'entry');
+    if (alreadyRegistered || autoPresenceTriggeredRef.current) return;
+    if (selectedPunch || mode === 'document') return;
+
+    autoPresenceTriggeredRef.current = true;
+    startPunch('entry');
+  }, [labels.presence_mode, labels.exit_enabled, dashboard?.today?.date, dashboard?.today?.rows, selectedPunch]);
+
   async function refreshEmployeeDashboard() {
     if (!token || !employeeId || !companyId || !navigator.onLine) return;
     try {
@@ -566,11 +588,19 @@ function EmployeePunch() {
 
   const todayRows = Array.isArray(dashboard?.today?.rows) ? dashboard.today.rows : [];
   const todaySchedule = dashboard?.today?.schedule || null;
-  const hasBreak = !!todaySchedule?.break_start_time && !!todaySchedule?.break_end_time;
+  const presenceMode = labels.presence_mode === 'entry' || labels.presence_mode === 'exit' || labels.presence_mode === 'both'
+    ? labels.presence_mode
+    : (labels.exit_enabled === false ? 'entry' : 'both');
+  const hasEntryToday = todayRows.some((r: any) => r.punch_type === 'entry');
+  const hasExitToday = todayRows.some((r: any) => r.punch_type === 'exit');
   const maxPunchesToday = todaySchedule?.afternoon_enabled === true ? 4 : 2;
   const lastPunchType = todayRows.length ? todayRows[todayRows.length - 1]?.punch_type : null;
   const nextPunchType = lastPunchType === 'entry' ? 'exit' : 'entry';
-  const dayFinalized = todayRows.length >= maxPunchesToday && lastPunchType === 'exit';
+  const dayFinalized = presenceMode === 'entry'
+    ? hasEntryToday
+    : presenceMode === 'exit'
+      ? hasExitToday
+      : todayRows.length >= maxPunchesToday && lastPunchType === 'exit';
 
   return <div className="app">
     <header className="top"><div className="brand" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1 }}><span style={{ fontSize: 24 }}>PontoFace</span><small style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>RMD</small></div><span className={online ? 'online' : 'offline'}>● {online ? 'Online' : 'Offline'}</span></header>
@@ -578,15 +608,15 @@ function EmployeePunch() {
       <div className="identity"><div className="avatar">👤</div><div><div style={{ fontSize: 12, opacity: 0.65, marginBottom: 2 }}>Empresa</div><div style={{ fontWeight: 800, fontSize: 16, marginBottom: 5 }}>{labels.name || 'Empresa'}</div><small>{labels.person_label}</small><h1>{employeeName}</h1></div></div>
       <div className="clock">{new Date().toLocaleTimeString('pt-BR')}</div>
       <div className="status">{message}</div>
-      {!dayFinalized && nextPunchType === 'entry' && (
+      {!dayFinalized && presenceMode !== 'exit' && (presenceMode === 'entry' || nextPunchType === 'entry') && (
         <div className="actions">
           <button className="primary" style={{ minHeight: 64, fontSize: 19, fontWeight: 900 }} onClick={() => startPunch('entry')}>
-            ✓ {labels.entry_label}
+            ✓ {presenceMode === 'entry' ? labels.entry_label || 'Marcar presença' : labels.entry_label}
           </button>
         </div>
       )}
 
-      {!dayFinalized && nextPunchType === 'exit' && labels.exit_enabled && (
+      {!dayFinalized && (presenceMode === 'exit' || (presenceMode === 'both' && nextPunchType === 'exit')) && (
         <div className="actions">
           <button className="secondary" style={{ minHeight: 64, fontSize: 19, fontWeight: 900, borderWidth: 3 }} onClick={() => startPunch('exit')}>
             ⇥ {labels.exit_label}
@@ -596,8 +626,14 @@ function EmployeePunch() {
 
       {dayFinalized && (
         <div className="fallback" style={{ marginTop: 12, marginBottom: 14, border: '1px solid var(--border)' }}>
-          <b>Jornada de hoje finalizada</b>
-          <div className="helptext" style={{ marginTop: 4 }}>Os {maxPunchesToday} registros previstos para hoje foram concluídos. Os registros anteriores permanecem armazenados no histórico.</div>
+          <b>{presenceMode === 'entry' ? 'Presença de hoje registrada' : presenceMode === 'exit' ? 'Saída de hoje registrada' : 'Jornada de hoje finalizada'}</b>
+          <div className="helptext" style={{ marginTop: 4 }}>
+            {presenceMode === 'entry'
+              ? 'A presença já foi reconhecida e registrada para hoje.'
+              : presenceMode === 'exit'
+                ? 'A saída já foi reconhecida e registrada para hoje.'
+                : `Os ${maxPunchesToday} registros previstos para hoje foram concluídos. Os registros anteriores permanecem armazenados no histórico.`}
+          </div>
         </div>
       )}
 
@@ -613,17 +649,26 @@ function EmployeePunch() {
       {dashboard?.today?.schedule && (
         <div className="fallback" style={{ marginBottom: 14 }}>
           <b>Resumo de hoje</b>
-          <div style={{ marginTop: 4 }}>Jornada: {dashboard.today.schedule.entry_time?.slice(0,5)} às {dashboard.today.schedule.exit_time?.slice(0,5)}</div>
-          <div style={{ marginTop: 3 }}>Trabalhado: {dashboard.today.worked ?? 0} min</div>
-          <div style={{ marginTop: 3, color: Number(dashboard.today.balance) < 0 ? 'var(--danger)' : 'var(--brand-2)', fontWeight: 800 }}>
-            Saldo: {dashboard.today.balance == null ? '—' : (Number(dashboard.today.balance) > 0 ? '+' : '') + Math.round(Number(dashboard.today.balance)) + ' min'}
-          </div>
+          {presenceMode === 'both' ? (
+            <>
+              <div style={{ marginTop: 4 }}>Jornada: {dashboard.today.schedule.entry_time?.slice(0,5)} às {dashboard.today.schedule.exit_time?.slice(0,5)}</div>
+              <div style={{ marginTop: 3 }}>Trabalhado: {dashboard.today.worked ?? 0} min</div>
+              <div style={{ marginTop: 3, color: Number(dashboard.today.balance) < 0 ? 'var(--danger)' : 'var(--brand-2)', fontWeight: 800 }}>
+                Saldo: {dashboard.today.balance == null ? '0 min' : (Number(dashboard.today.balance) > 0 ? '+' : '') + Math.round(Number(dashboard.today.balance)) + ' min'}
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ marginTop: 4 }}>Modo: {presenceMode === 'entry' ? 'Só presença / entrada' : 'Só saída'}</div>
+              <div style={{ marginTop: 3 }}>Registro: {presenceMode === 'entry' ? (hasEntryToday ? 'Presença confirmada' : 'Aguardando reconhecimento') : (hasExitToday ? 'Saída confirmada' : 'Aguardando reconhecimento')}</div>
+            </>
+          )}
         </div>
       )}
 
       {todayRows.length > 0 && (
         <div className="fallback" style={{ marginBottom: 14 }}>
-          <b>Pontos de hoje — {todayRows.length}/{maxPunchesToday}</b>
+          <b>{presenceMode === 'entry' ? 'Presença de hoje' : 'Pontos de hoje — ' + todayRows.length + '/' + maxPunchesToday}</b>
           <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
             {todayRows.slice(0, maxPunchesToday).map((h: any) => {
               const dt = new Date(h.occurred_at);
