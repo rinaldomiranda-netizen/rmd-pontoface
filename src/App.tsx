@@ -1,6 +1,7 @@
 import React from 'react';
 import { supabase } from './lib/supabaseClient';
 import EmployeePunch from './pages/EmployeePunch';
+import EmployeePunchBalance from './pages/EmployeePunchBalance';
 import AdminAuth from './pages/AdminAuth';
 import AdminDashboard from './pages/AdminDashboard';
 import PlatformAdmin from './pages/PlatformAdmin';
@@ -68,7 +69,7 @@ function App() {
   if (path.startsWith('/rmd')) return <PlatformAdmin />;
   if (path.startsWith('/convite')) return <ClaimInvite />;
   if (path.startsWith('/admin')) return <AdminApp />;
-  if (path.startsWith('/funcionario/')) return <EmployeePunch />;
+  if (path.startsWith('/funcionario/')) return <EmployeePunchBalance />;
   return <MainPortal />;
 }
 
