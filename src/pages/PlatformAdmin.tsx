@@ -2,6 +2,7 @@ import React from 'react';
 import { supabase, callFunction } from '../lib/supabaseClient';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { usePwaInstall } from '../lib/pwaInstall';
+import '../identity.css';
 
 type Company = {
   id: string; name: string; active: boolean; created_at: string;
@@ -87,6 +88,10 @@ export default function PlatformAdmin() {
 
   async function logout() { await supabase.auth.signOut(); }
 
+  React.useEffect(() => { document.title = 'RMD · PontoFace — Plataforma'; }, []);
+  const ativas = companies.filter(c => c.active).length;
+  const pendentes = companies.filter(c => c.has_pending_invite).length;
+
   if (session === 'checking') return <div className="admin-auth"><div className="card"><h1>Carregando...</h1></div></div>;
 
   if (session === 'login') {
@@ -111,10 +116,16 @@ export default function PlatformAdmin() {
   }
 
   return (
-    <div className="admin">
-      <div className="admin-main" style={{ maxWidth: 900, margin: '0 auto' }}>
-        <div className="admin-topbar">
-          <h1>RMD — Empresas clientes</h1>
+    <div className="admin theme-rmd platform">
+      <div className="admin-main" style={{ maxWidth: 980, margin: '0 auto' }}>
+        <div className="admin-topbar platform-topbar">
+          <div className="company-header">
+            <span className="company-mark platform-mark" style={{ width: 52, height: 52, borderRadius: 15, fontSize: 15 }} aria-hidden="true">RMD</span>
+            <div className="company-header-text">
+              <div className="company-header-name">RMD PontoFace</div>
+              <div className="company-header-section"><b>Administração da plataforma</b><span className="company-header-meta">{companies.length} empresa(s) · {ativas} ativa(s){pendentes ? ` · ${pendentes} convite(s) pendente(s)` : ''}</span></div>
+            </div>
+          </div>
           {!pwa.installed && pwa.canInstall && <button className="btn light" onClick={pwa.install}>Instalar aplicativo</button>}
           <button className="btn light" onClick={logout}>Sair</button>
         </div>

@@ -1,8 +1,8 @@
 name: PWA professional icon
 
+# Desligado em 26/09/2026: este robô reescrevia o código a cada push e desfazia mudanças do painel.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write

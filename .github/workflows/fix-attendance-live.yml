@@ -1,8 +1,8 @@
 name: Fix dashboard mobile menu and loading flicker
 
+# Desligado em 26/09/2026: este robô reescrevia o código a cada push e desfazia mudanças do painel.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -27,8 +27,8 @@ jobs:
               marker = "  const [section, setSection] = React.useState<Section>('overview');"
               s = s.replace(marker, marker + "\n  const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);", 1)
 
-          old = "{section === 'overview' ? <div className=\"mobile-nav\">{nav}</div> : <div className=\"mobile-nav-back\"><button className=\"btn light wide\" onClick={() => setSection('overview')}>← Voltar ao menu</button></div>}"
-          new = "{section === 'overview' ? (\n            <div className=\"mobile-nav\">\n              <button className=\"mobile-menu-trigger\" aria-label=\"Abrir menu do dashboard\" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen(v => !v)}>☰ <span>Menu</span></button>\n              {mobileMenuOpen && <div className=\"mobile-menu-popover\" onClick={() => setMobileMenuOpen(false)}>{nav}</div>}\n            </div>\n          ) : <div className=\"mobile-nav-back\"><button className=\"btn light wide\" onClick={() => setSection('overview')}>← Voltar ao menu</button></div>}"
+          old = "{section === 'overview' ? <div className=\"mobile-nav\">{nav}</div> : <div className=\"mobile-nav-back\"><button className=\"btn light wide\" onClick={() => setSection('overview')}>â† Voltar ao menu</button></div>}"
+          new = "{section === 'overview' ? (\n            <div className=\"mobile-nav\">\n              <button className=\"mobile-menu-trigger\" aria-label=\"Abrir menu do dashboard\" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen(v => !v)}>â˜° <span>Menu</span></button>\n              {mobileMenuOpen && <div className=\"mobile-menu-popover\" onClick={() => setMobileMenuOpen(false)}>{nav}</div>}\n            </div>\n          ) : <div className=\"mobile-nav-back\"><button className=\"btn light wide\" onClick={() => setSection('overview')}>â† Voltar ao menu</button></div>}"
           if old in s:
               s = s.replace(old, new, 1)
 
@@ -49,7 +49,7 @@ jobs:
           css = Path('src/styles.css')
           c = css.read_text(encoding='utf-8')
           if '.mobile-menu-trigger' not in c:
-              c += "\n@media (max-width: 760px){\n  .mobile-nav{display:block;position:relative;margin-bottom:14px;overflow:visible;}\n  .mobile-menu-trigger{display:inline-flex;align-items:center;justify-content:center;width:50px;height:46px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:0;color:var(--text);font-size:0;font-weight:800;box-shadow:0 2px 8px rgba(16,47,36,.06);}\n  .mobile-menu-trigger::before{content:'⋮';font-size:30px;line-height:1;}\n  .mobile-menu-popover{display:flex;flex-direction:column;gap:5px;position:absolute;left:0;right:auto;top:calc(100% + 7px);width:min(340px,calc(100vw - 28px));max-height:min(70vh,620px);overflow-y:auto;overflow-x:hidden;z-index:9999;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:8px;box-shadow:0 16px 38px rgba(16,47,36,.20);}\n  .mobile-menu-popover button{width:100%;min-height:46px;flex:0 0 auto;text-align:left;background:transparent;border:0;border-radius:9px;padding:12px 13px;color:var(--text);font-size:14px;font-weight:700;}\n  .mobile-menu-popover button.active{background:var(--brand-2);color:#fff;}\n  .admin-main{overflow:visible;}\n}\n"
+              c += "\n@media (max-width: 760px){\n  .mobile-nav{display:block;position:relative;margin-bottom:14px;overflow:visible;}\n  .mobile-menu-trigger{display:inline-flex;align-items:center;justify-content:center;width:50px;height:46px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:0;color:var(--text);font-size:0;font-weight:800;box-shadow:0 2px 8px rgba(16,47,36,.06);}\n  .mobile-menu-trigger::before{content:'â‹®';font-size:30px;line-height:1;}\n  .mobile-menu-popover{display:flex;flex-direction:column;gap:5px;position:absolute;left:0;right:auto;top:calc(100% + 7px);width:min(340px,calc(100vw - 28px));max-height:min(70vh,620px);overflow-y:auto;overflow-x:hidden;z-index:9999;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:8px;box-shadow:0 16px 38px rgba(16,47,36,.20);}\n  .mobile-menu-popover button{width:100%;min-height:46px;flex:0 0 auto;text-align:left;background:transparent;border:0;border-radius:9px;padding:12px 13px;color:var(--text);font-size:14px;font-weight:700;}\n  .mobile-menu-popover button.active{background:var(--brand-2);color:#fff;}\n  .admin-main{overflow:visible;}\n}\n"
           css.write_text(c, encoding='utf-8')
       - name: Commit patch
         shell: bash
