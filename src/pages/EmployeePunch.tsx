@@ -405,7 +405,7 @@ function EmployeePunch() {
 
   async function reverseGeocode(latitude: number, longitude: number): Promise<{ label: string | null; address: string | null }> {
     try {
-      const url = 'https://photon.komoot.io/reverse?lang=pt&limit=1&lon=' + encodeURIComponent(String(longitude)) + '&lat=' + encodeURIComponent(String(latitude));
+      const url = 'https://photon.komoot.io/reverse?limit=1&lon=' + encodeURIComponent(String(longitude)) + '&lat=' + encodeURIComponent(String(latitude));
       const r = await fetch(url, { headers: { Accept: 'application/json' } });
       if (!r.ok) return { label: null, address: null };
       const data = await r.json();
